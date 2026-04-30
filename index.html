@@ -136,8 +136,29 @@ async function patchDocx(b64, fn) {
   return zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
 }
 function dlBlob(blob,name){
-  const u=URL.createObjectURL(blob),a=document.createElement('a');
-  a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);
+  const u=URL.createObjectURL(blob);
+  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)&&!window.MSStream;
+  if(isIOS){
+    // Safari iOS: afficher un lien à appuyer manuellement
+    const old=document.getElementById('_dlOverlay');
+    if(old)old.remove();
+    const ov=document.createElement('div');
+    ov.id='_dlOverlay';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    ov.innerHTML=`<div style="background:white;border-radius:16px;padding:2rem;width:320px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)">
+      <div style="font-size:2.2rem;margin-bottom:.75rem">📄</div>
+      <div style="font-family:'DM Serif Display',serif;font-size:1.1rem;margin-bottom:.5rem">Fichier prêt !</div>
+      <div style="font-size:.82rem;color:#7a7468;margin-bottom:1.25rem">Sur iPhone, appuyez <strong>longuement</strong> sur le bouton ci-dessous, puis choisissez<br><strong>« Télécharger le lien lié »</strong></div>
+      <a href="${u}" download="${name}" style="display:block;background:#c8a96e;color:white;padding:.75rem 1rem;border-radius:9px;font-weight:600;font-size:.9rem;text-decoration:none;margin-bottom:.75rem">⬇ ${name}</a>
+      <button onclick="document.getElementById('_dlOverlay').remove();URL.revokeObjectURL('${u}')" style="background:none;border:1.5px solid #e0dbd0;border-radius:7px;padding:.5rem 1.2rem;font-family:'DM Sans',sans-serif;font-size:.82rem;color:#7a7468;cursor:pointer">Fermer</button>
+    </div>`;
+    document.body.appendChild(ov);
+    ov.addEventListener('click',e=>{if(e.target===ov){ov.remove();URL.revokeObjectURL(u);}});
+  } else {
+    const a=document.createElement('a');
+    a.href=u;a.download=name;a.click();
+    setTimeout(()=>URL.revokeObjectURL(u),1000);
+  }
 }
 
 // ── QUITTANCES ────────────────────────────────────────────────────
