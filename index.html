@@ -713,7 +713,7 @@ function autoFillLettres() {
 window.renderBailLocs = function() {
   const c = document.getElementById('bailLocList');
   if (!window.qLocs.length) {
-    c.innerHTML = '<div class="empty"><div class="empty-icon">&#127969;</div>Ajoutez d’abord un locataire dans l’onglet Quittances.</div>';
+    c.innerHTML = '<div class="empty"><div class="empty-icon">&#127969;</div>Ajoutez un locataire dans l\'onglet Quittances.</div>';
     return;
   }
   c.innerHTML = window.qLocs.map(l => `<div class="loc-item${l.id === bailSel ? ' sel' : ''}" onclick="bailSelLoc('${l.id}')">
@@ -1222,7 +1222,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       <aside>
         <div class="card" style="margin-bottom:1.2rem">
           <div class="card-head">&#128101; Locataires</div>
-          <div id="bailLocList" class="loc-list"><div class="empty"><div class="empty-icon">&#127969;</div>Ajoutez d’abord un locataire dans l’onglet Quittances.</div></div>
+          <div id="bailLocList" class="loc-list"><div class="empty"><div class="empty-icon">&#127969;</div>Ajoutez un locataire dans l\'onglet Quittances.</div></div>
         </div>
       </aside>
       <main>
