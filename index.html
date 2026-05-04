@@ -53,7 +53,7 @@ document.getElementById('loginPw').addEventListener('keydown', e => {
 function startListeners(uid) {
   onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
     window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderQLocs(); renderQHist();
+    renderQLocs(); renderQHist(); if(typeof renderBailLocs === 'function') renderBailLocs();
   });
   onSnapshot(collection(db, 'users', uid, 'fLocs'), snap => {
     window.fLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
