@@ -46,8 +46,10 @@ window.doLogin = async function() {
   catch(e) { err.textContent = 'Email ou mot de passe incorrect.'; }
 };
 window.doLogout = async function() { await signOut(auth); };
-document.getElementById('loginPw').addEventListener('keydown', e => {
-  if (e.key === 'Enter') window.doLogin();
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('loginPw').addEventListener('keydown', e => {
+    if (e.key === 'Enter') window.doLogin();
+  });
 });
 
 function startListeners(uid) {
