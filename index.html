@@ -7,8 +7,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -22,37 +20,16 @@ const firebaseConfig = {
 };
 
 const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
 const db   = getFirestore(app);
+const FIXED_UID = "thomas_martin_sci";
 
-onAuthStateChanged(auth, user => {
-  if (user) {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('mainApp').style.display    = 'block';
-    document.getElementById('userEmail').textContent    = user.email;
-    startListeners(user.uid);
-  } else {
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('mainApp').style.display    = 'none';
-  }
-});
-
-window.doLogin = async function() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const pw    = document.getElementById('loginPw').value;
-  const err   = document.getElementById('loginErr');
-  err.textContent = '';
-  try { await signInWithEmailAndPassword(auth, email, pw); }
-  catch(e) { err.textContent = 'Email ou mot de passe incorrect.'; }
-};
-window.doLogout = async function() { await signOut(auth); };
+// Démarrage direct sans authentification
 document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('loginBtn').addEventListener('click', window.doLogin);
-  document.getElementById('logoutBtn').addEventListener('click', window.doLogout);
-  document.getElementById('loginPw').addEventListener('keydown', e => {
-    if (e.key === 'Enter') window.doLogin();
-  });
+  document.getElementById('mainApp').style.display = 'block';
+  startListeners(FIXED_UID);
 });
+
+
 
 function startListeners(uid) {
   onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
@@ -71,7 +48,7 @@ function startListeners(uid) {
   });
 }
 
-function uid() { return auth.currentUser?.uid; }
+function uid() { return FIXED_UID; }
 async function dbSet(col, id, data) { await setDoc(doc(db,'users',uid(),col,id), data); }
 async function dbDel(col, id) { await deleteDoc(doc(db,'users',uid(),col,id)); }
 async function dbAddHist(entry) {
@@ -852,7 +829,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
 .login-btn{width:100%;background:var(--ink);color:white;border:none;border-radius:8px;padding:.75rem;font-family:'DM Sans',sans-serif;font-size:.95rem;font-weight:600;cursor:pointer;transition:background .15s;margin-top:.5rem;}
 .login-btn:hover{background:#243460;}
 .login-err{color:var(--danger);font-size:.8rem;text-align:center;margin-top:.75rem;min-height:1.2em;}
-#mainApp{display:none;}
+#mainApp{display:block;}
 .topbar{background:var(--ink);color:white;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;height:56px;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(0,0,0,.22);}
 .topbar-left{display:flex;align-items:center;gap:1.5rem;}
 .topbar-brand{font-family:'DM Serif Display',serif;font-size:1.1rem;white-space:nowrap;}
@@ -947,15 +924,6 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
 </head>
 <body>
 
-<div id="loginScreen">
-  <div class="login-box">
-    <div class="login-logo">&#127968; SCI <span>Thomarion</span></div>
-    <div class="login-sub">Gestion locative &mdash; Acc&egrave;s s&eacute;curis&eacute;</div>
-    <div class="login-field"><label>Adresse email</label><input id="loginEmail" type="email" placeholder="votre@email.com" autocomplete="email"/></div>
-    <div class="login-field"><label>Mot de passe</label><input id="loginPw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="current-password"/></div>
-    <button class="login-btn" id="loginBtn">Se connecter</button>
-    <div id="loginErr" class="login-err"></div>
-  </div>
 </div>
 
 <div id="mainApp">
@@ -970,10 +938,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
         <button class="tab-btn" onclick="showPage('historique',this)">&#128203; Historique</button>
       </div>
     </div>
-    <div class="topbar-right">
-      <span id="userEmail"></span>
-      <button class="logout-btn" id="logoutBtn">D&eacute;connexion</button>
-    </div>
+
   </div>
 
   <div id="page-quittances" class="page active">
