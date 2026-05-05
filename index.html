@@ -692,7 +692,7 @@ window.genBail = async function() {
   const locAdr     = document.getElementById('bailLocAdresse').value.trim();
   const adresse    = document.getElementById('bailAdresse').value.trim();
   const surface    = document.getElementById('bailSurface').value;
-  const pieces     = document.getElementById('bailPieces').value;
+  const pieces     = +document.getElementById('bailPieces').value;
   const dateDebut  = document.getElementById('bailDateDebut').value;
   const duree      = +document.getElementById('bailDuree').value;
   const loyer      = +document.getElementById('bailLoyer').value;
@@ -701,271 +701,454 @@ window.genBail = async function() {
   const jourPaie   = document.getElementById('bailJourPaie').value;
   const depot      = +document.getElementById('bailDepot').value;
   const depotL     = document.getElementById('bailDepotLettres').value.trim() || loyerLettres(depot);
+  const irl        = document.getElementById('bailIRL').value.trim() || '143,44';
+  const irlTrim    = document.getElementById('bailIRLTrim').value.trim() || 'T4 2024';
 
-  if(!nom || !adresse || !dateDebut || !loyer) { toast('Remplissez les champs obligatoires (nom, adresse, date, loyer).','err'); return; }
+  if(!nom || !adresse || !dateDebut || !loyer) { toast('Remplissez les champs obligatoires.','err'); return; }
 
   const dD = new Date(dateDebut);
   const dF = new Date(dateDebut);
   dF.setFullYear(dF.getFullYear() + duree);
-  const fd  = d => `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`;
+  const fd  = d => pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+'/'+d.getFullYear();
   const dateD = fd(dD), dateF = fd(dF), today = fd(new Date());
 
   const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W=210, ml=20, mr=20, cw=W-ml-mr;
-  let y=18;
-  const DARK=[22,33,62], GREY=[70,70,70], LGREY=[120,120,120], BLUE=[18,166,208];
 
-  // ── Helpers PDF ──
-  const setFont = (bold,sz,col) => {
-    pdf.setFont('helvetica', bold?'bold':'normal');
-    pdf.setFontSize(sz||10);
-    pdf.setTextColor(...(col||GREY));
-  };
-  const para = (txt, bold, sz, col, indent) => {
-    setFont(bold, sz, col);
-    const lines = pdf.splitTextToSize(txt, cw - (indent||0));
-    pdf.text(lines, ml+(indent||0), y);
-    y += lines.length * (sz||10) * 0.44 + 1.5;
-  };
-  const info = (lbl, val) => {
-    setFont(true, 9.5, GREY);
-    pdf.text(lbl, ml+5, y);
-    setFont(false, 9.5, GREY);
-    const lines = pdf.splitTextToSize(val, cw-55);
-    pdf.text(lines, ml+55, y);
-    y += Math.max(lines.length,1) * 5;
-  };
-  const hr = (col) => {
-    pdf.setDrawColor(...(col||[210,210,210]));
-    pdf.setLineWidth(0.3);
-    pdf.line(ml, y, W-mr, y);
-    y += 5;
-  };
-  const sec = (num, txt) => {
-    chk(15);
-    y += 3;
-    pdf.setFillColor(...DARK);
-    pdf.rect(ml, y-5, cw, 8, 'F');
-    setFont(true, 10, [255,255,255]);
-    pdf.text(`${num}. ${txt}`, ml+3, y);
-    y += 7;
-  };
-  const subsec = (txt) => {
-    chk(10);
-    y += 1;
-    setFont(true, 9.5, DARK);
-    pdf.text(txt, ml+3, y);
-    y += 6;
-  };
-  const chk = (needed) => {
-    if(y + (needed||20) > 283) { pdf.addPage(); y=18; }
-  };
-  const bullet = (txt) => {
-    chk(8);
-    setFont(false, 9, GREY);
-    const lines = pdf.splitTextToSize(txt, cw-10);
-    pdf.text('\u2022', ml+3, y);
-    pdf.text(lines, ml+9, y);
-    y += lines.length * 4.8;
-  };
+  // ══════════════════════════════════════════
+  // HELPERS COMMUNS
+  // ══════════════════════════════════════════
+  function makePDF() {
+    const pdf = new jsPDF({ unit:'mm', format:'a4' });
+    const W=210, ml=20, mr=20, cw=W-ml-mr;
+    let y=18;
+    const DARK=[22,33,62], GREY=[70,70,70], LGREY=[130,130,130], BLUE=[18,166,208];
 
-  // ════════════════════════════════════
-  // PAGE 1 — EN-TETE
-  // ════════════════════════════════════
-  setFont(true, 18, DARK);
-  pdf.text('CONTRAT DE LOCATION', W/2, y, {align:'center'}); y+=9;
-  setFont(false, 11, [100,100,100]);
-  pdf.text('Logement non meubl\u00e9 \u2022 Usage d\u2019habitation principale \u2022 Loi n\u00b089-462 du 6 juillet 1989', W/2, y, {align:'center'}); y+=6;
-  pdf.setDrawColor(...DARK); pdf.setLineWidth(0.6); pdf.line(ml, y, W-mr, y); y+=8;
+    const sf = (bold,sz,col) => {
+      pdf.setFont('helvetica', bold?'bold':'normal');
+      pdf.setFontSize(sz||10);
+      pdf.setTextColor(...(col||GREY));
+    };
+    const para = (txt, bold, sz, col, ind) => {
+      sf(bold,sz,col);
+      const lines = pdf.splitTextToSize(txt, cw-(ind||0));
+      pdf.text(lines, ml+(ind||0), y);
+      y += lines.length*(sz||10)*0.44+1.5;
+    };
+    const info = (lbl, val) => {
+      sf(true,9.5,GREY); pdf.text(lbl, ml+5, y);
+      sf(false,9.5,GREY);
+      const lines = pdf.splitTextToSize(val, cw-55);
+      pdf.text(lines, ml+55, y);
+      y += Math.max(lines.length,1)*5;
+    };
+    const hr = (col) => {
+      pdf.setDrawColor(...(col||[210,210,210]));
+      pdf.setLineWidth(0.3); pdf.line(ml,y,W-mr,y); y+=5;
+    };
+    const sec = (num, txt) => {
+      chk(15); y+=3;
+      pdf.setFillColor(...DARK); pdf.rect(ml,y-5,cw,8,'F');
+      sf(true,10,[255,255,255]); pdf.text(num+'. '+txt, ml+3, y); y+=7;
+    };
+    const subsec = (txt) => {
+      chk(10); y+=1; sf(true,9.5,DARK); pdf.text(txt, ml+3, y); y+=6;
+    };
+    const chk = (n) => {
+      if(y+(n||20)>283) { addFooter(); pdf.addPage(); y=18; }
+    };
+    const bullet = (txt) => {
+      chk(8); sf(false,9,GREY);
+      const lines = pdf.splitTextToSize(txt, cw-10);
+      pdf.text('•', ml+3, y); pdf.text(lines, ml+9, y);
+      y += lines.length*4.8;
+    };
+    const addFooter = () => {
+      const pg = pdf.internal.getCurrentPageInfo().pageNumber;
+      const tot = '?';
+      pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,290,W-mr,290);
+      sf(false,7,DARK);
+      pdf.text('SCI Thomarion • 83 av. Jean Camps, 11100 Narbonne • 06 63 09 74 82 • Siret : 918 029 810 00010 • Bail conforme loi ALUR n°89-462', W/2, 294, {align:'center'});
+    };
+    const finalFooters = () => {
+      const total = pdf.internal.getNumberOfPages();
+      for(let i=1; i<=total; i++) {
+        pdf.setPage(i);
+        pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,290,W-mr,290);
+        sf(false,7,DARK);
+        pdf.text('SCI Thomarion • 83 av. Jean Camps, 11100 Narbonne • 06 63 09 74 82 • Siret : 918 029 810 00010 • Bail conforme loi ALUR n°89-462', W/2, 294, {align:'center'});
+        sf(false,7,LGREY);
+        pdf.text('Page '+i+' / '+total, W-mr, 294, {align:'right'});
+      }
+    };
 
-  // ════════════════════════════════════
-  // I. PARTIES
-  // ════════════════════════════════════
-  sec('I', 'DESIGNATION DES PARTIES');
+    return { pdf, W, ml, mr, cw, DARK, GREY, LGREY, BLUE, sf, para, info, hr, sec, subsec, chk, bullet, finalFooters,
+      get y(){ return y; }, set y(v){ y=v; } };
+  }
+
+  // ══════════════════════════════════════════
+  // DOCUMENT 1 : CONTRAT DE BAIL
+  // ══════════════════════════════════════════
+  const B = makePDF();
+  const { pdf, W, ml, mr, cw, DARK, GREY, LGREY, BLUE, sf, para, info, hr, sec, subsec, chk, bullet } = B;
+
+  sf(true,18,DARK); pdf.text('CONTRAT DE LOCATION', W/2, B.y, {align:'center'}); B.y+=9;
+  sf(false,11,[100,100,100]); pdf.text('Logement non meubLé • Usage d’habitation principale • Loi n°89-462 du 6 juillet 1989', W/2, B.y, {align:'center'}); B.y+=6;
+  pdf.setDrawColor(...DARK); pdf.setLineWidth(0.6); pdf.line(ml,B.y,W-mr,B.y); B.y+=8;
+
+  sec('I','DESIGNATION DES PARTIES');
   subsec('Le Bailleur');
-  info('Nom :', 'SCI THOMARION \u2014 repr\u00e9sent\u00e9e par MARTIN Thomas');
-  info('Adresse :', '83 avenue Jean Camps, 11100 Narbonne');
-  info('T\u00e9l\u00e9phone :', '06 63 09 74 82');
-  info('Email :', 'tmjumeaux@orange.fr');
-  info('N\u00b0 SIRET :', '918 029 810 00010');
-  y+=3;
-  subsec('Le Locataire');
-  info('Nom / Pr\u00e9nom :', nom);
-  if(locAdr) info('Adresse actuelle :', locAdr);
+  info('Nom :','SCI THOMARION — représentée par MARTIN Thomas');
+  info('Adresse :','83 avenue Jean Camps, 11100 Narbonne');
+  info('Téléphone :','06 63 09 74 82');
+  info('Email :','tmjumeaux@orange.fr');
+  info('N° SIRET :','918 029 810 00010');
+  B.y+=3; subsec('Le Locataire');
+  info('Nom / Prénom :',nom);
+  if(locAdr) info('Adresse actuelle :',locAdr);
   hr(); chk();
 
-  // ════════════════════════════════════
-  // II. OBJET
-  // ════════════════════════════════════
-  sec('II', 'DESIGNATION DU LOGEMENT');
-  info('Adresse :', adresse);
-  info('Type de logement :', 'Appartement \u2014 usage exclusif d\u2019habitation principale');
-  info('Surface habitable :', surface + ' m\u00b2 (loi Carrez)');
-  info('Nombre de pi\u00e8ces principales :', pieces);
-  info('Niveau de performance \u00e9nerg\u00e9tique :', 'Voir DPE joint en annexe');
-  info('\u00c9quipements :', 'Cuisine \u00e9quip\u00e9e, salle d\u2019eau, WC, chauffage individuel, eau chaude individuelle');
-  info('Parties communes :', 'Acc\u00e8s internet fibre disponible dans les communs');
-  info('R\u00e9gime juridique :', 'Mono-propri\u00e9t\u00e9 \u2014 Immeuble ant\u00e9rieur \u00e0 1949');
+  sec('II','DESIGNATION DU LOGEMENT');
+  info('Adresse :',adresse);
+  info('Type de logement :','Appartement — usage exclusif d’habitation principale');
+  info('Surface habitable :',surface+' m² (loi Carrez)');
+  info('Nombre de pièces principales :',String(pieces));
+  info('Niveau de performance énergétique :','Voir DPE joint en annexe');
+  info('Équipements :','Cuisine équipée, salle d’eau, WC, chauffage individuel, eau chaude individuelle');
+  info('Parties communes :','Accès internet fibre disponible dans les communs');
+  info('Régime juridique :','Mono-propriété — Immeuble antérieur à 1949');
   hr(); chk();
 
-  // ════════════════════════════════════
-  // III. DUREE
-  // ════════════════════════════════════
-  sec('III', 'DUR\u00c9E DU CONTRAT');
-  info('Date de prise d\u2019effet :', dateD);
-  info('Date d\u2019\u00e9ch\u00e9ance :', dateF);
-  info('Dur\u00e9e :', duree + ' ans \u2014 ' + (duree===3?'bail standard personne physique':duree===6?'bail personne morale':'dur\u00e9e r\u00e9duite motif l\u00e9gitime'));
-  y+=2;
-  para('Renouvellement : \u00c0 l\u2019\u00e9ch\u00e9ance, le contrat est reconduit tacitement pour une dur\u00e9e de '+(duree===1?'un':duree===6?'six':'trois')+' ans, sauf cong\u00e9 donn\u00e9 dans les formes et d\u00e9lais l\u00e9gaux.', false, 9, LGREY, 5);
-  para('Cong\u00e9 par le locataire : le locataire peut donner cong\u00e9 \u00e0 tout moment, par lettre recommand\u00e9e avec AR ou acte d\u2019huissier. Le d\u00e9lai de pr\u00e9avis est de 3 mois (1 mois en zone tendue, mutation, perte d\u2019emploi ou \u00e9tat de sant\u00e9).', false, 9, LGREY, 5);
-  para('Cong\u00e9 par le bailleur : le bailleur ne peut donner cong\u00e9 qu\u2019\u00e0 l\u2019\u00e9ch\u00e9ance du bail, avec un pr\u00e9avis de 6 mois, pour reprise, vente ou motif l\u00e9gitime et s\u00e9rieux.', false, 9, LGREY, 5);
+  sec('III','DURÉE DU CONTRAT');
+  info('Date de prise d’effet :',dateD);
+  info('Date d’échéance :',dateF);
+  info('Durée :',duree+' ans — '+(duree===3?'bail standard personne physique':duree===6?'bail personne morale':'durée réduite motif légitime'));
+  B.y+=2;
+  para('Renouvellement : À l’échéance, le contrat est reconduit tacitement pour une durée de '+(duree===1?'un':duree===6?'six':'trois')+' ans, sauf congé donné dans les formes et délais légaux.',false,9,LGREY,5);
+  para('Congé par le locataire : le locataire peut donner congé à tout moment, par lettre recommandée avec AR ou acte d’huissier. Le délai de préavis est de 3 mois (1 mois en zone tendue, mutation, perte d’emploi ou état de santé).',false,9,LGREY,5);
+  para('Congé par le bailleur : le bailleur ne peut donner congé qu’à l’échéance du bail, avec un préavis de 6 mois, pour reprise, vente ou motif légitime et sérieux.',false,9,LGREY,5);
   hr(); chk();
 
-  // ════════════════════════════════════
-  // IV. CONDITIONS FINANCIERES
-  // ════════════════════════════════════
-  sec('IV', 'CONDITIONS FINANCI\u00c8RES');
+  sec('IV','CONDITIONS FINANCIÈRES');
   subsec('Loyer');
-  info('Montant du loyer mensuel :', loyer.toLocaleString('fr-FR') + ' \u20ac (' + loyerL + ')');
-  info('Date de paiement :', 'Le ' + jourPaie + ' de chaque mois, \u00e0 \u00e9choir');
-  info('Mode de paiement :', 'Virement bancaire');
-  y+=2;
-  para('R\u00e9vision annuelle : Le loyer sera r\u00e9vis\u00e9 chaque ann\u00e9e \u00e0 la date anniversaire du bail en fonction de la variation de l\u2019Indice de R\u00e9f\u00e9rence des Loyers (IRL) publi\u00e9 par l\u2019INSEE. L\u2019indice de base est celui du trimestre en cours \u00e0 la date de signature.', false, 9, LGREY, 5);
-  y+=3;
-  subsec('Charges r\u00e9cup\u00e9rables');
-  info('Provision mensuelle :', charges + ' \u20ac/mois');
-  info('Nature des charges :', 'Provisions sur charges avec r\u00e9gularisation annuelle');
-  info('\u00c9l\u00e9ments inclus :', 'Entretien des parties communes, eau froide, ordures m\u00e9nag\u00e8res');
-  y+=2;
-  para('R\u00e9gularisation : Une r\u00e9gularisation des charges aura lieu chaque ann\u00e9e sur pr\u00e9sentation des justificatifs. Le trop-per\u00e7u sera rembours\u00e9, le solde d\u00fb sera r\u00e9clam\u00e9.', false, 9, LGREY, 5);
-  y+=3;
-  subsec('Total mensuel');
-  setFont(true, 10.5, DARK);
-  pdf.text('Loyer + Charges = ' + (loyer+charges).toLocaleString('fr-FR') + ' \u20ac / mois', ml+5, y); y+=8;
+  info('Montant du loyer mensuel :',loyer.toLocaleString('fr-FR')+' € ('+loyerL+')');
+  info('Date de paiement :','Le '+jourPaie+' de chaque mois, à échoir');
+  info('Mode de paiement :','Virement bancaire');
+  B.y+=2;
+  para('Révision annuelle : Le loyer sera révisé chaque année à la date anniversaire du bail en fonction de la variation de l’Indice de Référence des Loyers (IRL) publié par l’INSEE. L’indice de référence retenu est celui du '+irlTrim+', soit '+irl+'.',false,9,LGREY,5);
+  B.y+=3; subsec('Charges récupérables');
+  info('Provision mensuelle :',charges+' €/mois');
+  info('Nature des charges :','Provisions sur charges avec régularisation annuelle');
+  info('Éléments inclus :','Entretien des parties communes, eau froide, ordures ménagères');
+  para('Régularisation : Une régularisation des charges aura lieu chaque année sur présentation des justificatifs.',false,9,LGREY,5);
+  B.y+=3; subsec('Total mensuel');
+  sf(true,10.5,DARK); pdf.text('Loyer + Charges = '+(loyer+charges).toLocaleString('fr-FR')+' € / mois', ml+5, B.y); B.y+=8;
   hr(); chk();
 
-  // ════════════════════════════════════
-  // V. DEPOT DE GARANTIE
-  // ════════════════════════════════════
-  sec('V', 'D\u00c9P\u00d4T DE GARANTIE');
-  info('Montant :', depot.toLocaleString('fr-FR') + ' \u20ac (' + depotL + ')');
-  info('Versement :', 'Par virement bancaire, au plus tard le jour de la remise des cl\u00e9s');
-  info('Plafond l\u00e9gal :', 'Equivalent \u00e0 un mois de loyer hors charges (art. 22 loi du 6 juillet 1989)');
-  y+=2;
-  para('Restitution : Le d\u00e9p\u00f4t de garantie sera restitu\u00e9 dans un d\u00e9lai maximal de 1 mois si l\u2019\u00e9tat des lieux de sortie est conforme \u00e0 celui d\u2019entr\u00e9e, ou de 2 mois en cas de diff\u00e9rence. Des retenues pourront \u00eatre effectu\u00e9es pour d\u00e9gradations ou loyers impay\u00e9s, sur pr\u00e9sentation de justificatifs.', false, 9, LGREY, 5);
+  sec('V','DÉPÔT DE GARANTIE');
+  info('Montant :',depot.toLocaleString('fr-FR')+' € ('+depotL+')');
+  info('Versement :','Par virement bancaire, au plus tard le jour de la remise des clés');
+  info('Plafond légal :','Équivalent à un mois de loyer hors charges (art. 22 loi du 6 juillet 1989)');
+  para('Restitution : Le dépôt de garantie sera restitué dans un délai maximal de 1 mois si l’état des lieux de sortie est conforme à celui d’entrée, ou de 2 mois en cas de différence. Des retenues pourront être effectuées sur présentation de justificatifs.',false,9,LGREY,5);
   hr(); chk();
 
-  // ════════════════════════════════════
-  // VI. OBLIGATIONS DU LOCATAIRE
-  // ════════════════════════════════════
-  sec('VI', 'OBLIGATIONS DU LOCATAIRE');
-  const obLocataire = [
-    'Payer le loyer et les charges aux termes convenus',
-    'Souscrire une assurance habitation (risques locatifs) et en justifier chaque ann\u00e9e',
-    'User paisiblement des locaux et r\u00e9pondre des d\u00e9gradations survenues en cours de bail',
-    'Entretenir les locaux et effectuer les r\u00e9parations locatives \u00e0 sa charge (d\u00e9cret n\u00b087-712)',
-    'Ne pas transformer les locaux sans accord \u00e9crit du bailleur',
-    'Ne pas sous-louer ni c\u00e9der le bail sans autorisation \u00e9crite du bailleur',
-    'Laisser acc\u00e8s aux locaux pour les travaux n\u00e9cessaires',
-    'Donner cong\u00e9 dans les formes l\u00e9gales et restituer les cl\u00e9s en fin de bail',
-    'Ne pas provoquer de troubles de voisinage',
-  ];
-  obLocataire.forEach(o => bullet(o));
+  sec('VI','OBLIGATIONS DU LOCATAIRE');
+  ['Payer le loyer et les charges aux termes convenus',
+   'Souscrire une assurance habitation (risques locatifs) et en justifier chaque année',
+   'User paisiblement des locaux et répondre des dégradations survenues en cours de bail',
+   'Entretenir les locaux et effectuer les réparations locatives à sa charge (décret n°87-712)',
+   'Ne pas transformer les locaux sans accord écrit du bailleur',
+   'Ne pas sous-louer ni céder le bail sans autorisation écrite du bailleur',
+   'Laisser accès aux locaux pour les travaux nécessaires',
+   'Donner congé dans les formes légales et restituer les clés en fin de bail',
+   'Ne pas provoquer de troubles de voisinage'
+  ].forEach(o => bullet(o));
   hr(); chk();
 
-  // ════════════════════════════════════
-  // VII. OBLIGATIONS DU BAILLEUR
-  // ════════════════════════════════════
-  sec('VII', 'OBLIGATIONS DU BAILLEUR');
-  const obBailleur = [
-    'D\u00e9livrer un logement d\u00e9cent, en bon \u00e9tat d\u2019usage et de r\u00e9paration (d\u00e9cret n\u00b02002-120)',
-    'Assurer la jouissance paisible du logement et le garantir contre les vices cach\u00e9s',
-    'Effectuer les r\u00e9parations autres que locatives n\u00e9cessaires au maintien en \u00e9tat du logement',
-    'Remettre les quittances de loyer gratuitement sur demande du locataire',
-    'Justifier de tout motif de cong\u00e9 par lettre recommand\u00e9e avec un pr\u00e9avis de 6 mois',
-    'Restituer le d\u00e9p\u00f4t de garantie dans les d\u00e9lais l\u00e9gaux avec justificatifs en cas de retenue',
-  ];
-  obBailleur.forEach(o => bullet(o));
+  sec('VII','OBLIGATIONS DU BAILLEUR');
+  ['Délivrer un logement décent, en bon état d’usage et de réparation (décret n°2002-120)',
+   'Assurer la jouissance paisible du logement et le garantir contre les vices cachés',
+   'Effectuer les réparations autres que locatives nécessaires au maintien en état du logement',
+   'Remettre les quittances de loyer gratuitement sur demande du locataire',
+   'Justifier de tout motif de congé par lettre recommandée avec un préavis de 6 mois',
+   'Restituer le dépôt de garantie dans les délais légaux avec justificatifs en cas de retenue'
+  ].forEach(o => bullet(o));
   hr(); chk();
 
-  // ════════════════════════════════════
-  // VIII. CLAUSES PARTICULIERES
-  // ════════════════════════════════════
-  sec('VIII', 'CLAUSES PARTICULI\u00c8RES');
-  subsec('Clause r\u00e9solutoire');
-  para('Le contrat sera r\u00e9sili\u00e9 de plein droit, apr\u00e8s commandement rest\u00e9 infructueux pendant un d\u00e9lai de deux mois, en cas de : non-paiement du loyer ou des charges \u00e0 leur terme, non-versement du d\u00e9p\u00f4t de garantie, d\u00e9faut d\u2019assurance justifi\u00e9e, ou trouble de voisinage constat\u00e9 par d\u00e9cision de justice d\u00e9finitive.', false, 9, LGREY, 5);
-  y+=3;
-  subsec('Clause de solidarit\u00e9 (si colocation)');
-  para('En cas de colocation, chaque locataire est tenu conjointement et solidairement au paiement de la totalit\u00e9 du loyer et des charges. La solidarit\u00e9 cesse \u00e0 la date d\u2019effet du cong\u00e9 du colocataire partant et lorsqu\u2019un nouveau locataire figure au bail, ou \u00e0 d\u00e9faut, 6 mois apr\u00e8s le cong\u00e9.', false, 9, LGREY, 5);
-  y+=3;
-  subsec('Animaux');
-  para('Le locataire est autoris\u00e9 \u00e0 d\u00e9tenir un animal domestique, sous r\u00e9serve de ne pas causer de nuisances et de r\u00e9pondre des d\u00e9gradations \u00e9ventuelles.', false, 9, LGREY, 5);
+  sec('VIII','CLAUSES PARTICULIÈRES');
+  subsec('Clause résolutoire');
+  para('Le contrat sera résilié de plein droit, après commandement resté infructueux pendant un délai de deux mois, en cas de : non-paiement du loyer ou des charges à leur terme, non-versement du dépôt de garantie, défaut d’assurance justifiée, ou trouble de voisinage constaté par décision de justice définitive.',false,9,LGREY,5);
+  B.y+=3; subsec('Clause de solidarité (si colocation)');
+  para('En cas de colocation, chaque locataire est tenu conjointement et solidairement au paiement de la totalité du loyer et des charges. La solidarité cesse à la date d’effet du congé du colocataire partant et lorsqu’un nouveau locataire figure au bail, ou à défaut, 6 mois après le congé.',false,9,LGREY,5);
+  B.y+=3; subsec('Animaux');
+  para('Le locataire est autorisé à détenir un animal domestique, sous réserve de ne pas causer de nuisances et de répondre des dégradations éventuelles.',false,9,LGREY,5);
   hr(); chk();
 
-  // ════════════════════════════════════
-  // IX. ANNEXES
-  // ════════════════════════════════════
-  sec('IX', 'ANNEXES OBLIGATOIRES');
-  const annexes = [
-    'Dossier de Diagnostic Technique (DDT) : DPE, constat de risque d\u2019exposition au plomb (CREP), \u00e9tat des risques naturels et technologiques (ERNT), diagnostic amiante, \u00e9lectricit\u00e9 et gaz si installation > 15 ans',
-    'Notice d\u2019information relative aux droits et obligations des locataires et des bailleurs (arr\u00eat\u00e9 du 29 mai 2015)',
-    '\u00c9tat des lieux d\u2019entr\u00e9e contradictoire (sign\u00e9 par les deux parties)',
-    'Grille de v\u00e9tust\u00e9 (recommand\u00e9e)',
-    'Attestation d\u2019assurance habitation du locataire',
-  ];
-  annexes.forEach(a => bullet(a));
-  hr(); chk();
+  sec('IX','ANNEXES OBLIGATOIRES');
+  ['Dossier de Diagnostic Technique (DDT) : DPE, constat de risque d’exposition au plomb (CREP), état des risques naturels et technologiques (ERNT), diagnostic amiante, électricité et gaz si installation > 15 ans',
+   'Notice d’information relative aux droits et obligations des locataires et des bailleurs (arrêté du 29 mai 2015) — JOINTE AU PRÉSENT BAIL (Document 2)',
+   'État des lieux d’entrée contradictoire — JOINT AU PRÉSENT BAIL (Document 3)',
+   'Grille de vétusté (recommandée)',
+   'Attestation d’assurance habitation du locataire'
+  ].forEach(a => bullet(a));
+  hr(); chk(55);
 
-  // ════════════════════════════════════
-  // X. SIGNATURES
-  // ════════════════════════════════════
-  chk(55);
-  sec('X', 'SIGNATURES');
-  y+=4;
-  para('Les soussign\u00e9s d\u00e9clarent avoir pris connaissance de l\u2019int\u00e9gralit\u00e9 du pr\u00e9sent contrat et en accepter toutes les clauses et conditions.', false, 9.5, GREY);
-  y+=3;
-  para('Fait \u00e0 Narbonne, le ' + today + ', en deux exemplaires originaux.', false, 9.5, GREY);
-  y+=10;
-
+  sec('X','SIGNATURES');
+  B.y+=4;
+  para('Les soussignés déclarent avoir pris connaissance de l’intégralité du présent contrat et en accepter toutes les clauses et conditions.',false,9.5,GREY);
+  B.y+=3;
+  para('Fait à Narbonne, le '+today+', en deux exemplaires originaux.',false,9.5,GREY);
+  B.y+=10;
   const c1=ml, c2=W/2+5, lw=80;
-  setFont(true, 9.5, DARK);
-  pdf.text('LE BAILLEUR', c1, y);
-  pdf.text('LE LOCATAIRE', c2, y); y+=4;
-  setFont(false, 8.5, LGREY);
-  pdf.text('SCI Thomarion \u2014 MARTIN Thomas', c1, y);
-  pdf.text(nom, c2, y); y+=4;
-  setFont(true, 8, LGREY);
-  pdf.text('(Pr\u00e9c\u00e9d\u00e9e de \u00ab Lu et approuv\u00e9 \u00bb)', c1, y);
-  pdf.text('(Pr\u00e9c\u00e9d\u00e9e de \u00ab Lu et approuv\u00e9 \u00bb)', c2, y); y+=18;
+  sf(true,9.5,DARK); pdf.text('LE BAILLEUR',c1,B.y); pdf.text('LE LOCATAIRE',c2,B.y); B.y+=4;
+  sf(false,8.5,LGREY); pdf.text('SCI Thomarion — MARTIN Thomas',c1,B.y); pdf.text(nom,c2,B.y); B.y+=4;
+  sf(true,8,LGREY); pdf.text('(Précédée de « Lu et approuvé »)',c1,B.y); pdf.text('(Précédée de « Lu et approuvé »)',c2,B.y); B.y+=18;
   pdf.setDrawColor(150,150,150); pdf.setLineWidth(0.4);
-  pdf.line(c1, y, c1+lw, y);
-  pdf.line(c2, y, c2+lw, y);
-  y+=8;
-  setFont(false, 8, LGREY);
-  pdf.text('Date : _____ / _____ / _________', c1, y);
-  pdf.text('Date : _____ / _____ / _________', c2, y);
+  pdf.line(c1,B.y,c1+lw,B.y); pdf.line(c2,B.y,c2+lw,B.y); B.y+=8;
+  sf(false,8,LGREY);
+  pdf.text('Date : _____ / _____ / _________',c1,B.y);
+  pdf.text('Date : _____ / _____ / _________',c2,B.y);
 
-  // ── Pied de page sur chaque page ──
+  B.finalFooters();
+
+  // ══════════════════════════════════════════
+  // DOCUMENT 2 : NOTICE CERFA OFFICIELLE
+  // ══════════════════════════════════════════
+  pdf.addPage();
+  let y2 = 15;
+  const W2=210, ml2=18, cw2=210-18-18;
+
+  const p2 = (txt,bold,sz,col,ind) => {
+    pdf.setFont('helvetica',bold?'bold':'normal');
+    pdf.setFontSize(sz||9);
+    pdf.setTextColor(...(col||[60,60,60]));
+    const lines = pdf.splitTextToSize(txt, cw2-(ind||0));
+    pdf.text(lines, ml2+(ind||0), y2);
+    y2 += lines.length*(sz||9)*0.44+1.2;
+  };
+  const h2 = (txt) => {
+    if(y2>272){ pdf.addPage(); y2=15; }
+    y2+=3;
+    pdf.setFillColor(22,33,62); pdf.rect(ml2,y2-5,cw2,7,'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(9); pdf.setTextColor(255,255,255);
+    pdf.text(txt, ml2+3, y2); y2+=6;
+  };
+  const b2 = (txt) => {
+    if(y2>274){ pdf.addPage(); y2=15; }
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(8.5); pdf.setTextColor(60,60,60);
+    const lines = pdf.splitTextToSize(txt, cw2-8);
+    pdf.text('•', ml2+3, y2); pdf.text(lines, ml2+8, y2);
+    y2 += lines.length*4.5;
+  };
+
+  // En-tête notice
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(13); pdf.setTextColor(22,33,62);
+  pdf.text('NOTICE D’INFORMATION', W2/2, y2, {align:'center'}); y2+=7;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(100,100,100);
+  pdf.text('relative aux droits et obligations des locataires et des bailleurs dans le cadre des locations de logements', W2/2, y2, {align:'center'}); y2+=5;
+  pdf.text('(arrêté du 29 mai 2015 pris en application de l’art. 3 de la loi n°89-462 du 6 juillet 1989)', W2/2, y2, {align:'center'}); y2+=6;
+  pdf.setDrawColor(22,33,62); pdf.setLineWidth(0.5); pdf.line(ml2,y2,W2-18,y2); y2+=7;
+
+  h2('1. CONCLUSION DU CONTRAT DE LOCATION');
+  p2('Le contrat de location est établi par écrit. Il précise notamment : la date de prise d’effet, la durée, la description du logement, les équipements, le montant du loyer et ses modalités de paiement, le montant du dépôt de garantie, la liste des réparations locatives. Un exemplaire signé est remis à chaque partie.',false,8.5);
+  p2('Les documents suivants doivent être remis au locataire lors de la signature : le dossier de diagnostic technique, la notice d’information, l’état des lieux, et l’inventaire du mobilier le cas échéant.',false,8.5);
+
+  h2('2. DUREE DE LA LOCATION');
+  p2('Le bail est conclu pour une durée minimale de 3 ans (bailleur personne physique) ou 6 ans (bailleur personne morale). Une durée inférieure est possible sur justification d’un motif légitime et sérieux (mutation professionnelle, études...).',false,8.5);
+  p2('Le bail est renouvelé tacitement à son échéance pour la même durée, sauf congé délivré dans les formes légales.',false,8.5);
+
+  h2('3. LOYER ET CHARGES');
+  p2('Le loyer est librement fixé entre les parties (sauf en zone d’encadrement des loyers). Il est révisé une fois par an à la date anniversaire du bail, selon la variation de l’IRL publié par l’INSEE. Nouveau loyer = loyer en cours x (IRL nouveau / IRL de référence).',false,8.5);
+  p2('Les charges récupérables peuvent être prélevées sous forme de provisions avec régularisation annuelle, ou de forfait. En cas de provisions, le bailleur doit communiquer les justificatifs au locataire.',false,8.5);
+
+  h2('4. DEPOT DE GARANTIE');
+  p2('Son montant ne peut excéder un mois de loyer hors charges. Il est restitué dans un délai de 1 mois si l’état des lieux de sortie est identique à l’état des lieux d’entrée, ou de 2 mois dans le cas contraire.',false,8.5);
+  p2('Le bailleur peut effectuer des retenues pour couvrir des réparations locatives ou loyers impayés, justifiées par des devis ou factures. En cas de retard de restitution, une majoration de 10% du loyer mensuel hors charges par mois de retard est due.',false,8.5);
+
+  h2('5. OBLIGATIONS DU LOCATAIRE');
+  b2('Payer le loyer et les charges à la date convenue');
+  b2('Souscrire une assurance contre les risques locatifs (incendie, dégâts des eaux...) et en justifier chaque année');
+  b2('Entretenir le logement et effectuer les réparations locatives à sa charge (décret n°87-712 du 26 août 1987)');
+  b2('User paisiblement des locaux et ne pas troubler la tranquillité du voisinage');
+  b2('Ne pas sous-louer ou céder le bail sans l’accord écrit du bailleur');
+  b2('Laisser accès au logement pour les travaux urgents ou nécessaires');
+  b2('Restituer le logement en bon état lors du départ');
+
+  h2('6. OBLIGATIONS DU BAILLEUR');
+  b2('Délivrer un logement décent répondant aux critères du décret n°2002-120 du 30 janvier 2002');
+  b2('Assurer la jouissance paisible du logement');
+  b2('Entretenir les locaux et effectuer les réparations qui ne sont pas à la charge du locataire');
+  b2('Remettre gratuitement une quittance de loyer sur demande');
+  b2('Ne pas s’opposer aux aménagements réalisables par le locataire qui ne constituent pas des transformations');
+
+  h2('7. CONGE');
+  p2('Le locataire peut donner congé à tout moment par lettre recommandée avec AR ou acte d’huissier, avec un préavis de 3 mois (réduit à 1 mois en zone tendue, perte d’emploi, mutation professionnelle, état de santé justifiant un changement de domicile, bénéficiaires du RSA ou AAH).',false,8.5);
+  p2('Le bailleur ne peut donner congé qu’à l’échéance du bail, avec un préavis de 6 mois, uniquement pour : reprendre le logement (usage personnel ou familial), vendre le logement, ou pour motif légitime et sérieux. Ce congé doit être notifié par lettre recommandée avec AR ou acte d’huissier.',false,8.5);
+
+  h2('8. ETAT DES LIEUX');
+  p2('Un état des lieux d’entrée et de sortie est obligatoire. Il doit être établi contradictoirement et signé par les deux parties (ou leurs mandataires). Il décrit précisément l’état de chaque pièce. En l’absence d’état des lieux, le locataire est présumé avoir reçu le logement en bon état.',false,8.5);
+
+  h2('9. TRAVAUX');
+  p2('Le locataire peut effectuer des aménagements sans transformation. Toute transformation nécessite l’accord écrit du bailleur. Le bailleur peut exiger la remise en état à la fin du bail ou conserver les transformations sans indemnité.',false,8.5);
+  p2('Les travaux améliorant les performances énergétiques peuvent faire l’objet d’un accord entre les parties (décret n°2019-1098).',false,8.5);
+
+  h2('10. RECOURS ET LITIGES');
+  p2('En cas de litige, les parties doivent d’abord tenter une conciliation amiable ou saisir la Commission Départementale de Conciliation (CDC). À défaut, le tribunal judiciaire du lieu de situation de l’immeuble est compétent.',false,8.5);
+  p2('Pour toute information : ADIL (Agence Départementale d’Information sur le Logement) — www.anil.org',false,8.5);
+
+  // ══════════════════════════════════════════
+  // DOCUMENT 3 : ETAT DES LIEUX
+  // ══════════════════════════════════════════
+  pdf.addPage();
+  let y3=15;
+  const p3=(txt,bold,sz,col,ind)=>{
+    pdf.setFont('helvetica',bold?'bold':'normal'); pdf.setFontSize(sz||9);
+    pdf.setTextColor(...(col||[60,60,60]));
+    const lines=pdf.splitTextToSize(txt,cw2-(ind||0));
+    pdf.text(lines,ml2+(ind||0),y3); y3+=lines.length*(sz||9)*0.44+1.2;
+  };
+  const boxLine=(lbl,wide)=>{
+    if(y3>274){pdf.addPage();y3=15;}
+    pdf.setFont('helvetica',wide?'normal':'bold'); pdf.setFontSize(9); pdf.setTextColor(40,40,40);
+    pdf.text(lbl,ml2,y3);
+    pdf.setDrawColor(180,180,180); pdf.setLineWidth(0.3);
+    const boxW=wide?cw2-45:cw2-30;
+    pdf.rect(ml2+(wide?45:30),y3-4,boxW,5);
+    y3+=7;
+  };
+  const secEDL=(titre)=>{
+    if(y3>270){pdf.addPage();y3=15;}
+    y3+=3;
+    pdf.setFillColor(22,33,62); pdf.rect(ml2,y3-5,cw2,7,'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(255,255,255);
+    pdf.text(titre,ml2+3,y3); y3+=7;
+  };
+  const pieceSection=(nomPiece)=>{
+    if(y3>255){pdf.addPage();y3=15;}
+    y3+=2;
+    pdf.setFillColor(200,215,230); pdf.rect(ml2,y3-4,cw2,6.5,'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.setTextColor(22,33,62);
+    pdf.text(nomPiece,ml2+3,y3); y3+=8;
+    // Tableau d'état par élément
+    const elements=['Murs / Plafond','Sol','Fenêtres / Volets','Porte(s)','Interrupteurs / Prises','Éclairage','Radiateur / Chauffage','Équipements spécifiques'];
+    // En-tête tableau
+    pdf.setFillColor(240,240,245); pdf.rect(ml2,y3-4,cw2,5.5,'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(8); pdf.setTextColor(50,50,50);
+    pdf.text('Élément',ml2+2,y3);
+    pdf.text('Entrée',ml2+75,y3);
+    pdf.text('Observations entrée',ml2+95,y3);
+    pdf.text('Sortie',ml2+145,y3);
+    pdf.text('Observations sortie',ml2+160,y3);
+    y3+=6;
+    elements.forEach(el=>{
+      if(y3>278){pdf.addPage();y3=15;}
+      pdf.setFont('helvetica','normal'); pdf.setFontSize(8); pdf.setTextColor(50,50,50);
+      pdf.text(el,ml2+2,y3);
+      // Colonnes état (TB/B/M/MP)
+      pdf.setDrawColor(190,190,190); pdf.setLineWidth(0.25);
+      pdf.rect(ml2+72,y3-3.5,18,5); // entrée état
+      pdf.rect(ml2+92,y3-3.5,50,5); // entrée obs
+      pdf.rect(ml2+142,y3-3.5,18,5); // sortie état
+      pdf.rect(ml2+162,y3-3.5,cw2-145,5); // sortie obs
+      y3+=6;
+    });
+    y3+=2;
+  };
+
+  // En-tête EDL
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(13); pdf.setTextColor(22,33,62);
+  pdf.text('ÉTAT DES LIEUX',W2/2,y3,{align:'center'}); y3+=7;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(100,100,100);
+  pdf.text('Loi n°89-462 du 6 juillet 1989 • Décret n°2016-382 du 30 mars 2016',W2/2,y3,{align:'center'}); y3+=5;
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.setTextColor(22,33,62);
+  // Type: cocher entrée ou sortie
+  pdf.text('□ ENTRÉE',ml2+30,y3); pdf.text('□ SORTIE',ml2+80,y3); y3+=6;
+  pdf.setDrawColor(22,33,62); pdf.setLineWidth(0.5); pdf.line(ml2,y3,W2-18,y3); y3+=7;
+
+  secEDL('IDENTIFICATION DES PARTIES');
+  boxLine('Bailleur :',true);
+  boxLine('Locataire :',true);
+  boxLine('Adresse du logement :',true);
+  boxLine('Date :',false);
+  y3+=3;
+  p3('État des clés :',true,9,[22,33,62]);
+  boxLine('Nombre de clés remises :',true);
+  boxLine('Digicode / badge :',true);
+  y3+=2;
+
+  secEDL('RELEVÉS DES COMPTEURS');
+  boxLine('Électricité (kWh) :',true);
+  boxLine('Gaz (m³) :',true);
+  boxLine('Eau froide (m³) :',true);
+  y3+=2;
+
+  secEDL('ÉTAT DES PIÈCES');
+  p3('TB = Très Bon  •  B = Bon  •  M = Moyen  •  MP = Mauvais état  •  Observations : préciser défauts constatés',false,7.5,[120,120,120]);
+  y3+=2;
+
+  // Génération des pièces selon le nombre
+  const nbChambres = pieces <= 1 ? 0 : pieces - 1;
+  pieceSection('ENTRÉE / COULOIR / DÉGAGEMENT');
+  pieceSection('SALON / SÉJOUR');
+  pieceSection('CUISINE');
+  for(let i=1; i<=nbChambres; i++){
+    pieceSection('CHAMBRE '+(nbChambres>1?i:''));
+  }
+  pieceSection('SALLE DE BAIN / SALLE D’EAU');
+  pieceSection('WC / TOILETTES');
+  pieceSection('CAVE / GARAGE / RANGEMENT (si applicable)');
+
+  // Observations générales
+  if(y3>250){pdf.addPage();y3=15;}
+  y3+=3;
+  pdf.setFillColor(22,33,62); pdf.rect(ml2,y3-5,cw2,7,'F');
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(255,255,255);
+  pdf.text('OBSERVATIONS GÉNÉRALES',ml2+3,y3); y3+=10;
+  pdf.setDrawColor(180,180,180); pdf.setLineWidth(0.3);
+  for(let i=0;i<5;i++){
+    pdf.line(ml2,y3,ml2+cw2,y3); y3+=7;
+  }
+  y3+=5;
+
+  // Signatures EDL
+  if(y3>255){pdf.addPage();y3=15;}
+  secEDL('SIGNATURES');
+  y3+=4;
+  p3('Les soussignés certifient que le présent état des lieux a été établi contradictoirement et réellement.',false,9,[60,60,60]);
+  y3+=3;
+  const s1=ml2, s2=W2/2+5, slw=75;
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(9); pdf.setTextColor(22,33,62);
+  pdf.text('BAILLEUR',s1,y3); pdf.text('LOCATAIRE',s2,y3); y3+=5;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(8.5); pdf.setTextColor(80,80,80);
+  pdf.text('SCI Thomarion — MARTIN Thomas',s1,y3); pdf.text(nom,s2,y3); y3+=4;
+  pdf.setFont('helvetica','italic'); pdf.setFontSize(8); pdf.setTextColor(120,120,120);
+  pdf.text('(Lu et approuvé)',s1,y3); pdf.text('(Lu et approuvé)',s2,y3); y3+=16;
+  pdf.setDrawColor(150,150,150); pdf.setLineWidth(0.4);
+  pdf.line(s1,y3,s1+slw,y3); pdf.line(s2,y3,s2+slw,y3); y3+=8;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(8); pdf.setTextColor(120,120,120);
+  pdf.text('Date : _____ / _____ / _________',s1,y3);
+  pdf.text('Date : _____ / _____ / _________',s2,y3);
+
+  // Pagination finale pour tous les documents
+  B.finalFooters();
   const totalPages = pdf.internal.getNumberOfPages();
   for(let i=1; i<=totalPages; i++){
     pdf.setPage(i);
-    pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,290,W-mr,290);
-    setFont(false, 7, DARK);
-    pdf.text('SCI Thomarion \u2022 83 av. Jean Camps, 11100 Narbonne \u2022 06 63 09 74 82 \u2022 Siret : 918 029 810 00010 \u2022 Bail conforme loi ALUR n\u00b089-462', W/2, 294, {align:'center'});
-    setFont(false, 7, LGREY);
+    const pg = pdf.internal.getCurrentPageInfo().pageNumber;
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7); pdf.setTextColor(22,33,62);
+    // Footer already added by finalFooters for bail pages, add for others
     pdf.text('Page '+i+' / '+totalPages, W-mr, 294, {align:'right'});
   }
 
-  const fn = `bail_${nom.replace(/\s+/g,'_')}_${dateD.replace(/\//g,'-')}.pdf`;
+  const fn = 'bail_complet_'+nom.replace(/\s+/g,'_')+'_'+dateD.replace(/\//g,'-')+'.pdf';
   dlPDF(pdf, fn);
   await dbAddHist({type:'Bail', qui:nom, periode:adresse, montant:loyer+' €', fichier:fn,
     bailData:{nom:nom, locAdr:locAdr, adresse:adresse, surface:surface, pieces:pieces,
       dateDebut:dateDebut, duree:duree, loyer:loyer, loyerL:loyerL,
-      charges:charges, jourPaie:jourPaie, depot:depot, depotL:depotL}
+      charges:charges, jourPaie:jourPaie, depot:depot, depotL:depotL,
+      irl:irl, irlTrim:irlTrim}
   });
   renderBailHist();
-  toast('Bail g\u00e9n\u00e9r\u00e9 !', 'ok');
+  toast('Bail complet généré (bail + notice CERFA + état des lieux) !', 'ok');
 };
 
 
@@ -1341,8 +1524,13 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
             </div>
             <div class="field"><label>Dépôt en lettres</label><input id="bailDepotLettres" placeholder="cinq cent cinquante euros"/></div>
           </div>
-          <div style="display:flex;flex-direction:column;justify-content:flex-end">
-            <button class="btn-gen" onclick="genBail()" style="width:100%;font-size:.9rem;padding:.75rem">&#128209; Générer le bail PDF</button>
+          <div>
+            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128200; Indice IRL</div>
+            <div class="row2">
+              <div class="field"><label>Valeur IRL</label><input id="bailIRL" type="number" step="0.01" value="143.44" placeholder="ex: 143.44"/></div>
+              <div class="field"><label>Trimestre de référence</label><input id="bailIRLTrim" placeholder="ex: T4 2024"/></div>
+            </div>
+            <button class="btn-gen" onclick="genBail()" style="width:100%;font-size:.9rem;padding:.75rem;margin-top:.5rem">&#128209; Générer le bail + état des lieux PDF</button>
           </div>
         </div>
       </div>
