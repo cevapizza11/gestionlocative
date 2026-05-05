@@ -4,13 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SCI Thomarion — Gestion locative</title>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 <script src="https://cdn.jsdelivr.net/npm/docx@9.6.1/dist/index.iife.js"></script>
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyB6BGTt7qfmSF6M92ijwEnhdvfoXmY-zVk",
@@ -21,11 +23,11 @@ const firebaseConfig = {
   appId: "1:890402411714:web:e112344008dd4d069f975b"
 };
 
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db   = firebase.firestore();
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
 
-auth.onAuthStateChanged(user => {
+onAuthStateChanged(auth, user => {
   if (user) {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mainApp').style.display    = 'block';
@@ -42,34 +44,24 @@ window.doLogin = async function() {
   const pw    = document.getElementById('loginPw').value;
   const err   = document.getElementById('loginErr');
   err.textContent = '';
-  try { await auth.signInWithEmailAndPassword(email, pw); }
+  try { await signInWithEmailAndPassword(auth, email, pw); }
   catch(e) { err.textContent = 'Email ou mot de passe incorrect.'; }
 };
-window.doLogout = async function() { await auth.signOut(); };
-
-// Attacher les evenements login apres chargement du DOM
-document.addEventListener('DOMContentLoaded', function() {
-  var btnLogin = document.getElementById('loginBtn');
-  var btnLogout = document.getElementById('logoutBtn');
-  var pwInput = document.getElementById('loginPw');
-  if(btnLogin) btnLogin.addEventListener('click', window.doLogin);
-  if(btnLogout) btnLogout.addEventListener('click', window.doLogout);
-  if(pwInput) pwInput.addEventListener('keydown', function(e) {
-    if(e.key === 'Enter') window.doLogin();
-  });
+window.doLogout = async function() { await signOut(auth); };
+document.getElementById('loginPw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') window.doLogin();
 });
 
-
 function startListeners(uid) {
-  db.collection('users').doc(uid).collection('qLocs').onSnapshot(snap => {
+  onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
     window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderQLocs(); renderQHist();
   });
-  db.collection('users').doc(uid).collection('fLocs').onSnapshot(snap => {
+  onSnapshot(collection(db, 'users', uid, 'fLocs'), snap => {
     window.fLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderFLocs(); renderFHist();
   });
-  db.collection('users').doc(uid).collection('hist').onSnapshot(snap => {
+  onSnapshot(collection(db, 'users', uid, 'hist'), snap => {
     window.hist = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
@@ -78,11 +70,11 @@ function startListeners(uid) {
 }
 
 function uid() { return auth.currentUser?.uid; }
-async function dbSet(col, id, data) { await db.collection('users').doc(uid()).collection(col).doc(id).set(data); }
-async function dbDel(col, id) { await db.collection('users').doc(uid()).collection(col).doc(id).delete(); }
+async function dbSet(col, id, data) { await setDoc(doc(db,'users',uid(),col,id), data); }
+async function dbDel(col, id) { await deleteDoc(doc(db,'users',uid(),col,id)); }
 async function dbAddHist(entry) {
   const id = Date.now().toString();
-  await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: firebase.firestore.FieldValue.serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
+  await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
 }
 
 // ── MOIS ──────────────────────────────────────────────────────────
@@ -530,35 +522,11 @@ window.genQuittance=async function(){
     toast('Quittance t\u00e9l\u00e9charg\u00e9e !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
-
-// ── GOOGLE DRIVE LIENS ────────────────────────────────
-window.openDriveModal = async function(histId) {
-  const entry = window.hist.find(x => x.id === histId);
-  if(!entry) return;
-  const current = entry.driveUrl || '';
-  const url = prompt('Collez le lien Google Drive du document signé :
-(Clic droit sur le fichier Drive → Copier le lien)', current);
-  if(url === null) return; // annulé
-  // Save to Firestore
-  try {
-    await db.collection('users').doc(uid()).collection('hist').doc(histId).update({ driveUrl: url });
-    toast('Lien enregistré !', 'ok');
-  } catch(e) { toast('Erreur : ' + e.message, 'err'); }
-};
-
-function driveBtn(x) {
-  if(x.driveUrl) {
-    return `<a href="${x.driveUrl}" target="_blank" class="btn-edit-sm" style="text-decoration:none;margin-right:3px" title="Voir le document signé">&#128065; Voir</a>`
-          +`<button class="btn-edit-sm" onclick="openDriveModal('${x.id}')" title="Modifier le lien">&#128279;</button>`;
-  }
-  return `<button class="btn-edit-sm" onclick="openDriveModal('${x.id}')" title="Lier un document signé">&#128206; Lier</button>`;
-}
-
 window.renderQHist=function(){
   const h=window.hist.filter(x=>x.type==='Quittance').slice(0,10);
   const c=document.getElementById('qHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Période</th><th>Montant</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FACTURES LOYER ────────────────────────────────────────────────
@@ -617,7 +585,7 @@ window.renderFHist=function(){
   const h=window.hist.filter(x=>x.type==='Facture loyer').slice(0,10);
   const c=document.getElementById('fHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Soci\u00e9t\u00e9</th><th>P\u00e9riode</th><th>TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FOND DE COMMERCE ──────────────────────────────────────────────
@@ -677,7 +645,7 @@ window.renderFdHist=function(){
   const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
   const c=document.getElementById('fdHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>P\u00e9riode</th><th>Total TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><span class="badge badge-gold">${x.periode}</span></td><td><strong>${x.montant}</strong></td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
@@ -685,7 +653,7 @@ window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
   const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>B\u00e9n\u00e9ficiaire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HELPERS ───────────────────────────────────────────────────────
@@ -717,7 +685,7 @@ window.renderBailHist = function() {
     <td>${x.periode}</td>
     <td>${x.montant}</td>
     <td style="color:var(--muted)">${x.date||''}</td>
-    <td style="white-space:nowrap">${x.bailData ? `<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger" style="margin-right:3px">&#11015; PDF</button>` : ''}${driveBtn(x)}</td>
+    <td>${x.bailData ? `<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger">&#11015; PDF</button>` : ''}</td>
   </tr>`).join('')}</tbody></table>`;
 };
 
@@ -1665,7 +1633,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     </div>
     <div class="topbar-right">
       <span id="userEmail"></span>
-      <button class="logout-btn" id="logoutBtn">D&eacute;connexion</button>
+      <button class="logout-btn" onclick="doLogout()">D&eacute;connexion</button>
     </div>
   </div>
 
