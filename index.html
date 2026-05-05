@@ -63,7 +63,7 @@ function startListeners(uid) {
     window.hist = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
-    renderQHist(); renderFHist(); renderFdHist(); renderAllHist();
+    renderQHist(); renderFHist(); renderFdHist(); renderAllHist(); if(typeof renderBailHist==='function') renderBailHist();
   });
 }
 
@@ -650,7 +650,7 @@ window.renderFdHist=function(){
 window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
-  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green'};
+  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>B\u00e9n\u00e9ficiaire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
 };
 
@@ -663,6 +663,146 @@ window.showPage=function(id,btn){
   if(id==='historique')renderAllHist();
 };
 window.closeModal=function(id){document.getElementById(id).classList.remove('open');};
+
+// ── BAIL ──────────────────────────────────────────────
+window.bailAutoLettres = function() {
+  const l = +document.getElementById('bailLoyer').value;
+  const d = +document.getElementById('bailDepot').value;
+  if(l) document.getElementById('bailLoyerLettres').value = loyerLettres(l);
+  if(d) document.getElementById('bailDepotLettres').value = loyerLettres(d);
+};
+
+window.renderBailHist = function() {
+  const h = window.hist.filter(x => x.type === 'Bail').slice(0,10);
+  const c = document.getElementById('bailHistTable');
+  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div>';return;}
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Adresse</th><th>Loyer</th><th>Généré le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
+};
+
+window.genBail = async function() {
+  const nom        = document.getElementById('bailNom').value.trim();
+  const locAdr     = document.getElementById('bailLocAdresse').value.trim();
+  const adresse    = document.getElementById('bailAdresse').value.trim();
+  const surface    = document.getElementById('bailSurface').value;
+  const pieces     = document.getElementById('bailPieces').value;
+  const dateDebut  = document.getElementById('bailDateDebut').value;
+  const duree      = +document.getElementById('bailDuree').value;
+  const loyer      = +document.getElementById('bailLoyer').value;
+  const loyerL     = document.getElementById('bailLoyerLettres').value.trim() || loyerLettres(loyer);
+  const charges    = +document.getElementById('bailCharges').value;
+  const jourPaie   = document.getElementById('bailJourPaie').value;
+  const depot      = +document.getElementById('bailDepot').value;
+  const depotL     = document.getElementById('bailDepotLettres').value.trim() || loyerLettres(depot);
+
+  if(!nom || !adresse || !dateDebut || !loyer) { toast('Remplissez les champs obligatoires (nom, adresse, date, loyer).','err'); return; }
+
+  const dD = new Date(dateDebut);
+  const dF = new Date(dateDebut);
+  dF.setFullYear(dF.getFullYear() + duree);
+  const fd  = d => `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`;
+  const dateD = fd(dD), dateF = fd(dF), today = fd(new Date());
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W=210, ml=20, mr=20, cw=W-ml-mr;
+  let y=18;
+  const DARK=[22,33,62], GREY=[90,90,90];
+
+  const t = (txt, bold, sz, col, center) => {
+    pdf.setFont('helvetica', bold?'bold':'normal');
+    pdf.setFontSize(sz||10);
+    pdf.setTextColor(...(col||GREY));
+    const lines = pdf.splitTextToSize(txt, cw);
+    pdf.text(lines, center ? W/2 : ml, y, center ? {align:'center'} : {});
+    y += lines.length * (sz||10) * 0.43 + 2;
+  };
+  const info = (lbl, val) => {
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(...GREY);
+    pdf.text(lbl, ml+4, y);
+    pdf.setFont('helvetica','normal');
+    const lines = pdf.splitTextToSize(val, cw-52);
+    pdf.text(lines, ml+52, y);
+    y += Math.max(lines.length,1) * 4.8;
+  };
+  const hr = () => { pdf.setDrawColor(200,200,200); pdf.setLineWidth(0.3); pdf.line(ml,y,W-mr,y); y+=5; };
+  const sec = (txt) => { y+=2; pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5); pdf.setTextColor(...DARK); pdf.text(txt,ml,y); y+=6; };
+  const chk = () => { if(y>272){ pdf.addPage(); y=18; } };
+
+  t('CONTRAT DE LOCATION', true, 16, DARK, true);
+  t('POUR LOGEMENT NON MEUBLE', true, 13, DARK, true);
+  pdf.setDrawColor(...DARK); pdf.setLineWidth(0.5); pdf.line(ml,y,W-mr,y); y+=8;
+
+  sec('I. DESIGNATION DES PARTIES');
+  info('Bailleur :', 'SCI THOMARION - MARTIN Thomas');
+  info('Adresse :', '83 avenue Jean Camps, 11100 Narbonne');
+  info('Contact :', 'tmjumeaux@orange.fr  -  06 63 09 74 82  -  Siret : 918 029 810 00010');
+  y+=3;
+  info('Locataire :', nom);
+  if(locAdr) info('Adresse actuelle :', locAdr);
+  hr(); chk();
+
+  sec('II. OBJET DU CONTRAT');
+  info('Adresse du logement :', adresse);
+  info('Surface habitable :', surface + ' m²');
+  info('Nombre de pièces :', pieces);
+  info('Type :', 'Usage d’habitation - Mono-propriété');
+  hr(); chk();
+
+  sec('III. DUREE ET DATES');
+  info('Date de début :', dateD);
+  info('Date de fin :', dateF);
+  info('Durée :', duree + ' ans' + (duree===3?' (personne physique)':duree===6?' (personne morale)':' (durée réduite)'));
+  t('    Le locataire peut mettre fin au contrat à tout moment avec un préavis de 3 mois.', false, 9, GREY);
+  hr(); chk();
+
+  sec('IV. CONDITIONS FINANCIERES');
+  info('Loyer mensuel :', loyer.toLocaleString('fr-FR') + ' € (' + loyerL + ')');
+  info('Charges :', charges + ' €/mois');
+  info('Total mensuel :', (loyer+charges).toLocaleString('fr-FR') + ' €');
+  info('Paiement :', 'Le ' + jourPaie + ' de chaque mois - À échoir - Virement bancaire');
+  hr(); chk();
+
+  sec('V. DEPOT DE GARANTIE');
+  info('Montant :', depot.toLocaleString('fr-FR') + ' € (' + depotL + ') - Par virement');
+  hr(); chk();
+
+  sec('VI. CLAUSE RESOLUTOIRE');
+  t('    Le bail sera résilié de plein droit en cas de défaut de paiement des loyers et charges pendant '
+    +'deux mois, de non-versement du dépôt de garantie, ou de défaut d’assurance locative.', false, 9, GREY);
+  hr(); chk();
+
+  sec('VII. ANNEXES');
+  [
+    'Dossier de diagnostic technique (DPE, plomb, amiante, électricité, gaz)',
+    'Notice d’information droits et obligations des locataires et bailleurs',
+    'Etat des lieux d’entrée'
+  ].forEach(a => t('    - ' + a, false, 9, GREY));
+  hr(); chk();
+
+  y+=4;
+  t('Fait à Narbonne, le ' + today, false, 9.5, GREY);
+  y+=8;
+  const c1=ml, c2=W/2+5;
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(...DARK);
+  pdf.text('Signature du bailleur', c1, y);
+  pdf.text('Signature du locataire', c2, y); y+=4;
+  pdf.setFont('helvetica','italic'); pdf.setFontSize(8.5); pdf.setTextColor(...GREY);
+  pdf.text('(précédée de « Lu et approuvé »)', c1, y);
+  pdf.text('(précédée de « Lu et approuvé »)', c2, y); y+=16;
+  pdf.setDrawColor(180,180,180); pdf.setLineWidth(0.4);
+  pdf.line(c1, y, c1+70, y);
+  pdf.line(c2, y, c2+70, y);
+  pdf.setDrawColor(...DARK); pdf.setLineWidth(0.4); pdf.line(ml,290,W-mr,290);
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(7.5); pdf.setTextColor(...DARK);
+  pdf.text('SCI Thomarion • 83 av. Jean Camps, 11100 Narbonne • 06 63 09 74 82 • Siret : 918 029 810 00010 • Bail conforme loi ALUR', W/2, 294, {align:'center'});
+
+  const fn = `bail_${nom.replace(/\s+/g,'_')}_${dateD.replace(/\//g,'-')}.pdf`;
+  dlPDF(pdf, fn);
+  await dbAddHist({type:'Bail', qui:nom, periode:adresse, montant:loyer+' €', fichier:fn});
+  renderBailHist();
+  toast('Bail généré !', 'ok');
+};
+
 let tT;
 window.toast=function(msg,t='ok'){
   const el=document.getElementById('toast');el.textContent=msg;el.className='toast '+t;
@@ -677,6 +817,8 @@ const now=new Date();
   document.getElementById(id).addEventListener('input',window.fdCalc);
 });
 window.fdCalc();
+const _bd=document.getElementById('bailDateDebut');if(_bd)_bd.value=new Date().toISOString().split('T')[0];
+if(typeof bailAutoLettres==='function')bailAutoLettres();
 </script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
 <style>
@@ -809,6 +951,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
         <button class="tab-btn" onclick="showPage('fond',this)">&#129309; Fond de commerce</button>
+        <button class="tab-btn" onclick="showPage('bail',this)">&#128209; Baux</button>
         <button class="tab-btn" onclick="showPage('historique',this)">&#128203; Historique</button>
       </div>
     </div>
@@ -956,6 +1099,65 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       </div>
     </div>
   </div>
+
+  <div id="page-bail" class="page">
+    <div class="section-title">Baux de location <span class="pill">Non meublés</span></div>
+    <div class="card">
+      <div class="card-head">&#128209; Nouveau bail</div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem">
+          <div>
+            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128100; Locataire</div>
+            <div class="field"><label>Nom complet</label><input id="bailNom" placeholder="ex: Saulnier Didier"/></div>
+            <div class="field"><label>Adresse actuelle</label><input id="bailLocAdresse" placeholder="ex: 12 rue Hugo, Paris"/></div>
+          </div>
+          <div>
+            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#127968; Le logement</div>
+            <div class="field"><label>Adresse louée</label><input id="bailAdresse" value="83 B avenue Jean Camp, 11100 Narbonne"/></div>
+            <div class="row2">
+              <div class="field"><label>Surface (m²)</label><input id="bailSurface" type="number" value="50" step="0.5"/></div>
+              <div class="field"><label>Nb pièces</label><input id="bailPieces" type="number" value="2" min="1"/></div>
+            </div>
+          </div>
+          <div>
+            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128197; Dates</div>
+            <div class="field"><label>Prise d&#39;effet</label><input id="bailDateDebut" type="date"/></div>
+            <div class="field"><label>Durée</label>
+              <select id="bailDuree">
+                <option value="3">3 ans (personne physique)</option>
+                <option value="6">6 ans (personne morale)</option>
+                <option value="1">1 an (durée réduite)</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Loyer</div>
+            <div class="row2">
+              <div class="field"><label>Loyer (€)</label><input id="bailLoyer" type="number" value="550" oninput="bailAutoLettres()"/></div>
+              <div class="field"><label>Charges (€/mois)</label><input id="bailCharges" type="number" value="150"/></div>
+            </div>
+            <div class="field"><label>Loyer en lettres</label><input id="bailLoyerLettres" placeholder="cinq cent cinquante euros"/></div>
+          </div>
+          <div>
+            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Garantie &amp; Paiement</div>
+            <div class="row2">
+              <div class="field"><label>Dépôt garantie (€)</label><input id="bailDepot" type="number" value="550" oninput="bailAutoLettres()"/></div>
+              <div class="field"><label>Jour paiement</label><input id="bailJourPaie" type="number" value="5" min="1" max="28"/></div>
+            </div>
+            <div class="field"><label>Dépôt en lettres</label><input id="bailDepotLettres" placeholder="cinq cent cinquante euros"/></div>
+          </div>
+          <div style="display:flex;flex-direction:column;justify-content:flex-end">
+            <button class="btn-gen" onclick="genBail()" style="width:100%;font-size:.9rem;padding:.75rem">&#128209; Générer le bail PDF</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:1.2rem">
+      <div class="card-head">&#128203; Derniers baux</div>
+      <div id="bailHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div></div>
+    </div>
+  </div>
+
 
   <div id="page-historique" class="page">
     <div class="section-title">Historique complet <span class="pill">Tous types</span></div>
