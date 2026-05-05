@@ -522,11 +522,35 @@ window.genQuittance=async function(){
     toast('Quittance t\u00e9l\u00e9charg\u00e9e !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
+
+// ── GOOGLE DRIVE LIENS ────────────────────────────────
+window.openDriveModal = async function(histId) {
+  const entry = window.hist.find(x => x.id === histId);
+  if(!entry) return;
+  const current = entry.driveUrl || '';
+  const url = prompt('Collez le lien Google Drive du document signé :
+(Clic droit sur le fichier Drive → Copier le lien)', current);
+  if(url === null) return; // annulé
+  // Save to Firestore
+  try {
+    await db.collection('users').doc(UID).collection('hist').doc(histId).update({ driveUrl: url });
+    toast('Lien enregistré !', 'ok');
+  } catch(e) { toast('Erreur : ' + e.message, 'err'); }
+};
+
+function driveBtn(x) {
+  if(x.driveUrl) {
+    return `<a href="${x.driveUrl}" target="_blank" class="btn-edit-sm" style="text-decoration:none;margin-right:3px" title="Voir le document signé">&#128065; Voir</a>`
+          +`<button class="btn-edit-sm" onclick="openDriveModal('${x.id}')" title="Modifier le lien">&#128279;</button>`;
+  }
+  return `<button class="btn-edit-sm" onclick="openDriveModal('${x.id}')" title="Lier un document signé">&#128206; Lier</button>`;
+}
+
 window.renderQHist=function(){
   const h=window.hist.filter(x=>x.type==='Quittance').slice(0,10);
   const c=document.getElementById('qHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Période</th><th>Montant</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FACTURES LOYER ────────────────────────────────────────────────
@@ -585,7 +609,7 @@ window.renderFHist=function(){
   const h=window.hist.filter(x=>x.type==='Facture loyer').slice(0,10);
   const c=document.getElementById('fHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Soci\u00e9t\u00e9</th><th>P\u00e9riode</th><th>TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FOND DE COMMERCE ──────────────────────────────────────────────
@@ -645,7 +669,7 @@ window.renderFdHist=function(){
   const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
   const c=document.getElementById('fdHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>P\u00e9riode</th><th>Total TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><span class="badge badge-gold">${x.periode}</span></td><td><strong>${x.montant}</strong></td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
@@ -653,7 +677,7 @@ window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
   const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>B\u00e9n\u00e9ficiaire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HELPERS ───────────────────────────────────────────────────────
@@ -685,7 +709,7 @@ window.renderBailHist = function() {
     <td>${x.periode}</td>
     <td>${x.montant}</td>
     <td style="color:var(--muted)">${x.date||''}</td>
-    <td>${x.bailData ? `<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger">&#11015; PDF</button>` : ''}</td>
+    <td style="white-space:nowrap">${x.bailData ? `<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger" style="margin-right:3px">&#11015; PDF</button>` : ''}${driveBtn(x)}</td>
   </tr>`).join('')}</tbody></table>`;
 };
 
