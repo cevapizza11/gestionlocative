@@ -47,6 +47,8 @@ window.doLogin = async function() {
 };
 window.doLogout = async function() { await signOut(auth); };
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('loginBtn').addEventListener('click', window.doLogin);
+  document.getElementById('logoutBtn').addEventListener('click', window.doLogout);
   document.getElementById('loginPw').addEventListener('keydown', e => {
     if (e.key === 'Enter') window.doLogin();
   });
@@ -951,7 +953,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     <div class="login-sub">Gestion locative &mdash; Acc&egrave;s s&eacute;curis&eacute;</div>
     <div class="login-field"><label>Adresse email</label><input id="loginEmail" type="email" placeholder="votre@email.com" autocomplete="email"/></div>
     <div class="login-field"><label>Mot de passe</label><input id="loginPw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="current-password"/></div>
-    <button class="login-btn" onclick="doLogin()">Se connecter</button>
+    <button class="login-btn" id="loginBtn">Se connecter</button>
     <div id="loginErr" class="login-err"></div>
   </div>
 </div>
@@ -970,7 +972,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     </div>
     <div class="topbar-right">
       <span id="userEmail"></span>
-      <button class="logout-btn" onclick="doLogout()">D&eacute;connexion</button>
+      <button class="logout-btn" id="logoutBtn">D&eacute;connexion</button>
     </div>
   </div>
 
