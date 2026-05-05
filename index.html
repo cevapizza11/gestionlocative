@@ -48,9 +48,19 @@ window.doLogin = async function() {
   catch(e) { err.textContent = 'Email ou mot de passe incorrect.'; }
 };
 window.doLogout = async function() { await signOut(auth); };
-document.getElementById('loginPw').addEventListener('keydown', e => {
-  if (e.key === 'Enter') window.doLogin();
+
+// Attacher les evenements login apres chargement du DOM
+document.addEventListener('DOMContentLoaded', function() {
+  var btnLogin = document.getElementById('loginBtn');
+  var btnLogout = document.getElementById('logoutBtn');
+  var pwInput = document.getElementById('loginPw');
+  if(btnLogin) btnLogin.addEventListener('click', window.doLogin);
+  if(btnLogout) btnLogout.addEventListener('click', window.doLogout);
+  if(pwInput) pwInput.addEventListener('keydown', function(e) {
+    if(e.key === 'Enter') window.doLogin();
+  });
 });
+
 
 function startListeners(uid) {
   onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
@@ -1638,7 +1648,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     <div class="login-sub">Gestion locative &mdash; Acc&egrave;s s&eacute;curis&eacute;</div>
     <div class="login-field"><label>Adresse email</label><input id="loginEmail" type="email" placeholder="votre@email.com" autocomplete="email"/></div>
     <div class="login-field"><label>Mot de passe</label><input id="loginPw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="current-password"/></div>
-    <button class="login-btn" onclick="doLogin()">Se connecter</button>
+    <button class="login-btn" id="loginBtn">Se connecter</button>
     <div id="loginErr" class="login-err"></div>
   </div>
 </div>
@@ -1657,7 +1667,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     </div>
     <div class="topbar-right">
       <span id="userEmail"></span>
-      <button class="logout-btn" onclick="doLogout()">D&eacute;connexion</button>
+      <button class="logout-btn" id="logoutBtn">D&eacute;connexion</button>
     </div>
   </div>
 
