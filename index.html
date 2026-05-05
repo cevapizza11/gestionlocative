@@ -3,847 +3,33 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SCI Thomarion — Gestion locative</title>
+<title>SCI Thomarion</title>
+
+<!-- jsPDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+<!-- JSZip pour Word -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-const firebaseConfig = {
-  apiKey: "AIzaSyB6BGTt7qfmSF6M92ijwEnhdvfoXmY-zVk",
-  authDomain: "sci-thomarion.firebaseapp.com",
-  projectId: "sci-thomarion",
-  storageBucket: "sci-thomarion.firebasestorage.app",
-  messagingSenderId: "890402411714",
-  appId: "1:890402411714:web:e112344008dd4d069f975b"
-};
+<!-- Firebase compat (pas de module ES = portee globale) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-const app  = initializeApp(firebaseConfig);
-const db   = getFirestore(app);
-const FIXED_UID = "thomas_martin_sci";
-
-// Démarrage direct sans authentification
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('mainApp').style.display = 'block';
-  startListeners(FIXED_UID);
-});
-
-
-
-function startListeners(uid) {
-  onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
-    window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderQLocs(); renderQHist();
-  });
-  onSnapshot(collection(db, 'users', uid, 'fLocs'), snap => {
-    window.fLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderFLocs(); renderFHist();
-  });
-  onSnapshot(collection(db, 'users', uid, 'hist'), snap => {
-    window.hist = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
-    renderQHist(); renderFHist(); renderFdHist(); renderAllHist(); if(typeof renderBailHist==='function') renderBailHist();
-  });
-}
-
-function uid() { return FIXED_UID; }
-async function dbSet(col, id, data) { await setDoc(doc(db,'users',uid(),col,id), data); }
-async function dbDel(col, id) { await deleteDoc(doc(db,'users',uid(),col,id)); }
-async function dbAddHist(entry) {
-  const id = Date.now().toString();
-  await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
-}
-
-// ── MOIS ──────────────────────────────────────────────────────────
-const MFRDOC  = ["","janvier","f\u00e9vrier","mars","avril","mai","juin","juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"];
-const MCAPDOC = ["","Janvier","F\u00e9vrier","Mars","Avril","Mai","Juin","Juillet","Ao\u00fbt","Septembre","Octobre","Novembre","D\u00e9cembre"];
-
-// ── UTILS ─────────────────────────────────────────────────────────
-function pad2(n){ return String(n).padStart(2,'0'); }
-function dernJ(m,a){ return new Date(a,m,0).getDate(); }
-function init(nom){ return nom.split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
-function fmtEur(n){ return n.toFixed(2).replace('.',',') + '\u20ac'; }
-
-function nLettres(n){
-  const u=['','un','deux','trois','quatre','cinq','six','sept','huit','neuf','dix','onze','douze','treize','quatorze','quinze','seize','dix-sept','dix-huit','dix-neuf'];
-  const d=['','dix','vingt','trente','quarante','cinquante','soixante','soixante','quatre-vingt','quatre-vingt'];
-  if(n===0)return'z\u00e9ro';
-  let r='';
-  if(n>=1000){const m=Math.floor(n/1000);r+=(m===1?'mille':nLettres(m)+' mille');n%=1000;if(n>0)r+=' ';}
-  if(n>=100){const c=Math.floor(n/100);r+=(c===1?'cent':u[c]+' cent');n%=100;if(n>0)r+=' ';else if(c>1)r+='s';}
-  if(n>=80){const dd=Math.floor(n/10),uu=n%10;if(dd===9)r+='quatre-vingt-'+u[uu+10];else if(dd===8)r+=uu===0?'quatre-vingts':'quatre-vingt-'+u[uu];else{const dz=d[dd];if(uu===0)r+=dz;else if(uu===1&&dd===7)r+='soixante et onze';else if(dd===7)r+='soixante-'+u[uu+10];else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}}
-  else if(n>=20){const dd=Math.floor(n/10),uu=n%10,dz=d[dd];if(uu===0)r+=dz;else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}
-  else if(n>0)r+=u[n];
-  return r;
-}
-function loyerLettres(m){
-  const e=Math.floor(m),c=Math.round((m-e)*100);
-  let s=nLettres(e)+' euro'+(e>1?'s':'');
-  if(c>0)s+=' et '+nLettres(c)+' centime'+(c>1?'s':'');
-  return s;
-}
-
-// ── PDF ENGINE ────────────────────────────────────────────────────
-function dlPDF(pdf, filename) {
-  // Fonctionne sur tous les navigateurs y compris Safari iOS
-  const blob = pdf.output('blob');
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-// ── PDF QUITTANCE ─────────────────────────────────────────────────
-function genPdfQuittance(loc, mois, annee, jourPaie) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25, cw = W - ml - mr;
-  let y = 20;
-
-  // Couleur principale
-  const BLUE = [18, 166, 208]; // #12A6D0
-
-  // Titre centré
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(18);
-  pdf.setTextColor(...BLUE);
-  pdf.text('QUITTANCE DE LOYER', W/2, y, {align:'center'});
-  y += 9;
-
-  pdf.setFontSize(13);
-  pdf.setTextColor(...BLUE);
-  const mNom = MFRDOC[mois];
-  pdf.text(`Quittance de loyer du mois de ${mNom} ${annee}`, W/2, y, {align:'center'});
-  y += 10;
-
-  // Ligne séparatrice
-  pdf.setDrawColor(...BLUE);
-  pdf.setLineWidth(0.5);
-  pdf.line(ml, y, W-mr, y);
-  y += 8;
-
-  // Adresse de location
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(30,30,30);
-  pdf.text('Adresse de location :', ml, y);
-  y += 6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.text(loc.adresse, ml + 4, y);
-  y += 10;
-
-  // Corps du texte
-  const moisStr = pad2(mois);
-  const dj = dernJ(mois, annee);
-  const loyer = parseFloat(loc.loyer);
-  const ltx = loyerLettres(loyer);
-  const texte = `Je soussign\u00e9 MARTIN Thomas, propri\u00e9taire du logement d\u00e9sign\u00e9 ci-dessus, d\u00e9clare avoir re\u00e7u de ${loc.nom} la somme de ${ltx} (en toutes lettres), ${Math.round(loyer)} euros (en chiffres), au titre du paiement du loyer pour la p\u00e9riode de location du 01/${moisStr}/${annee} au ${dj}/${moisStr}/${annee} et lui en donne quittance, sous r\u00e9serve de tous mes droits.`;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(30,30,30);
-  const lignes = pdf.splitTextToSize(texte, cw);
-  pdf.text(lignes, ml, y);
-  y += lignes.length * 5.5 + 8;
-
-  // Ligne
-  pdf.setDrawColor(220,220,220);
-  pdf.setLineWidth(0.3);
-  pdf.line(ml, y, W-mr, y);
-  y += 8;
-
-  // Détail règlement
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(30,30,30);
-  pdf.text('D\u00e9tail du r\u00e8glement :', ml, y);
-  y += 7;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  const jps = pad2(jourPaie);
-  const jf  = pad2(Math.min(jourPaie+8, dj));
-  const lignes2 = [
-    `Loyer : ${Math.round(loyer)} euros`,
-    `Provision pour charges : 0 euros`,
-    `Total : ${Math.round(loyer)} euros`,
-    `Date du paiement : le ${jps}/${moisStr}/${annee}`,
-    `Fait \u00e0 Narbonne, le ${jf}/${moisStr}/${annee}`,
-  ];
-  for (const l of lignes2) {
-    pdf.text(l, ml+4, y);
-    y += 6;
-  }
-  y += 4;
-
-  // Signature
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.text('Signature', ml, y);
-  y += 6;
-  pdf.setFont('helvetica','normal');
-  pdf.text('Thomas MARTIN', ml, y);
-  y += 14;
-
-  // Ligne
-  pdf.setDrawColor(220,220,220);
-  pdf.line(ml, y, W-mr, y);
-  y += 7;
-
-  // Mention légale
-  pdf.setFontSize(8.5);
-  pdf.setTextColor(120,120,120);
-  const mention = `Cette quittance annule tous les re\u00e7us qui auraient pu \u00eatre \u00e9tablis pr\u00e9c\u00e9demment en cas de paiement partiel du montant du pr\u00e9sent terme. Elle est \u00e0 conserver pendant trois ans par le locataire (article 7-1 de la loi n\u00b0\u00a089-462 du 6 juillet 1989).`;
-  const mLeg = pdf.splitTextToSize(mention, cw);
-  pdf.text(mLeg, ml, y);
-
-  // Pied de page
-  const yFoot = 280;
-  pdf.setDrawColor(...BLUE);
-  pdf.setLineWidth(0.4);
-  pdf.line(ml, yFoot, W-mr, yFoot);
-  pdf.setFontSize(8.5);
-  pdf.setTextColor(...BLUE);
-  pdf.text('SCI Thomarion  \u2022  83 avenue Jean Camps, 11100 Narbonne  \u2022  06 63 09 74 82  \u2022  Siret : 918 029 810 00010', W/2, yFoot+5, {align:'center'});
-
-  return pdf;
-}
-
-// ── PDF FACTURE LOYER ─────────────────────────────────────────────
-function genPdfLoyer(loc, mois, annee, jour) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25;
-  let y = 22;
-
-  const DARK = [22,33,62]; // #16213e
-
-  // En-tête émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(16);
-  pdf.setTextColor(...DARK);
-  pdf.text('SCI THOMARION', ml, y);
-  y += 10;
-
-  // Date
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.setTextColor(60,60,60);
-  const mNom = MCAPDOC[mois];
-  pdf.text(`NARBONNE, le ${jour} ${mNom} ${annee}`, ml, y);
-  y += 12;
-
-  // Destinataire
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text(loc.nom, ml, y); y+=6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(loc.adr1, ml, y); y+=5.5;
-  pdf.text(loc.adr2, ml, y); y+=12;
-
-  // Référence
-  const mStr = pad2(mois);
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`REF/ Loyer ${mNom} ${annee}`, ml, y); y+=5.5;
-  pdf.text(`Local ${loc.local}`, ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  if(loc.localAdr) { pdf.text(loc.localAdr, ml, y); y+=5.5; }
-  y += 3;
-
-  // Numéro de facture
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  const aStr = String(annee);
-  pdf.text(`Facture ${annee}-${mStr}-L${loc.local}`, ml, y);
-  y += 9;
-
-  // Titre loyer
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(30,30,30);
-  pdf.text(`Loyer Mois ${mNom} ${annee}`, ml, y);
-  y += 8;
-
-  // Tableau montants
-  const ht = loc.ht;
-  const tvaV = Math.round(ht*(loc.tva/100)*100)/100;
-  const ttc = Math.round((ht+tvaV)*100)/100;
-  const col1 = 120, col2 = W-mr;
-  const rows = [
-    ['HT', fmtEur(ht)],
-    [`T.V.A ${loc.tva}.00%`, fmtEur(tvaV)],
-    ['TOTAL Loyer TTC', fmtEur(ttc)],
-  ];
-
-  pdf.setLineWidth(0.3);
-  for (let i=0; i<rows.length; i++) {
-    const isTot = i === rows.length-1;
-    if(isTot) {
-      pdf.setFillColor(240,240,245);
-      pdf.rect(ml, y-4.5, col2-ml, 7, 'F');
-      pdf.setFont('helvetica','bold');
-    } else {
-      pdf.setFont('helvetica','normal');
-    }
-    pdf.setFontSize(10.5);
-    pdf.setTextColor(30,30,30);
-    pdf.text(rows[i][0], col1-2, y, {align:'right'});
-    pdf.text(rows[i][1], col2-2, y, {align:'right'});
-    pdf.setDrawColor(200,200,200);
-    pdf.line(ml, y+2, col2, y+2);
-    y += 8;
-  }
-  y += 6;
-
-  // Montant en lettres
-  pdf.setFont('helvetica','italic');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  const ltx = loyerLettres(ttc);
-  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
-  y += 9;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10);
-  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance.\nCordiales salutations.', W-ml-mr);
-  pdf.text(lignes, ml, y);
-  y += lignes.length * 5.5 + 12;
-
-  // Pied émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(...DARK);
-  pdf.text('SCI Thomarion,', ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  pdf.text('83 avenue Jean Camps, 11100 Narbonne,', ml, y); y+=5.5;
-  pdf.text('06 63 09 74 82,', ml, y); y+=5.5;
-  pdf.text('N\u00b0 siret : 918 029 810 00010', ml, y);
-
-  return pdf;
-}
-
-// ── PDF FOND DE COMMERCE ──────────────────────────────────────────
-function genPdfFond(mois, annee, lHT, lTV, cHT, cTV) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25;
-  let y = 22;
-
-  const DARK = [22,33,62];
-  const mNom = MCAPDOC[mois];
-  const mStr = pad2(mois);
-  const lTC = lHT+lTV, cTC = cHT+cTV;
-  const tHT = lHT+cHT, tTV = lTV+cTV, tTC = lTC+cTC;
-
-  // En-tête émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(16);
-  pdf.setTextColor(...DARK);
-  pdf.text('SASU CEVA PIZZA', ml, y);
-  y += 10;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`NARBONNE, le 1er ${mNom} ${annee}`, ml, y);
-  y += 12;
-
-  // Destinataire
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text('Sasu Pizzeria Fascianella', ml, y); y+=6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text('83A avenue Jean Camp  11100 Narbonne', ml, y); y+=12;
-
-  // Référence
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`REF/ ${mNom} ${annee}`, ml, y); y+=5.5;
-  pdf.text('Fond de commerce', ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  pdf.text('83 avenue Jean Camps, 11100 Narbonne', ml, y); y+=9;
-
-  // Numéro de facture
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text(`Facture ${annee}-${mStr}-F1`, ml, y);
-  y += 10;
-
-  // Tableau
-  const col1x = ml, col2x = W-mr;
-  const rowH = 7.5;
-  const rows = [
-    [`Loyer Mois ${mNom} ${annee}`, '', true, false],
-    ['HT', fmtEur(lHT), false, false],
-    ['T.V.A 20.00%', fmtEur(lTV), false, false],
-    ['TOTAL Loyer TTC', fmtEur(lTC), false, true],
-    [`Provision sur charges (r\u00e9guler en fin d\u2019ann\u00e9e) HT`, fmtEur(cHT), false, false],
-    ['TVA 20,00%', fmtEur(cTV), false, false],
-    ['TOTAL charge TTC', fmtEur(cTC), false, true],
-    ['Total HT', fmtEur(tHT), false, false],
-    ['Total TVA 20,00%', fmtEur(tTV), false, false],
-    ['Total \u00e0 r\u00e9gler TTC', fmtEur(tTC), false, true],
-  ];
-
-  pdf.setDrawColor(180,180,180);
-  pdf.setLineWidth(0.3);
-  for (const [label, val, isHead, isTot] of rows) {
-    if(isHead) {
-      pdf.setFillColor(22,33,62);
-      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(255,255,255);
-      pdf.text(label, col1x+3, y-0.5);
-    } else if(isTot) {
-      pdf.setFillColor(230,235,245);
-      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(30,30,30);
-      pdf.text(label, col1x+3, y-0.5);
-      pdf.text(val, col2x-3, y-0.5, {align:'right'});
-    } else {
-      pdf.setFont('helvetica','normal');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(40,40,40);
-      pdf.text(label, col1x+3, y-0.5);
-      pdf.text(val, col2x-3, y-0.5, {align:'right'});
-    }
-    pdf.line(col1x, y+2, col2x, y+2);
-    y += rowH;
-  }
-  y += 8;
-
-  // Montant en lettres
-  pdf.setFont('helvetica','italic');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  const ltx = loyerLettres(tTC);
-  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
-  y += 8;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10);
-  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance. Cordiales salutations.', W-ml-mr);
-  pdf.text(lignes, ml, y);
-
-  return pdf;
-}
-
-// ── ETAT ──────────────────────────────────────────────────────────
-window.qLocs=[]; window.fLocs=[]; window.hist=[];
-let qSel=null, fSel=null;
-
-async function dbSetL(col,id,data){await dbSet(col,id,data);}
-
-// ── QUITTANCES ────────────────────────────────────────────────────
-window.qAjouter = async function(){
-  const nom=document.getElementById('qNewNom').value.trim();
-  const adr=document.getElementById('qNewAdresse').value.trim();
-  const loyer=document.getElementById('qNewLoyer').value.trim();
-  if(!nom||!adr||!loyer){toast('Remplissez tous les champs.','err');return;}
-  const id=Date.now().toString();
-  await dbSet('qLocs',id,{nom,adresse:adr,loyer:parseFloat(loyer)});
-  document.getElementById('qNewNom').value='';
-  document.getElementById('qNewAdresse').value='';
-  document.getElementById('qNewLoyer').value='';
-  toast(nom+' ajout\u00e9(e) !','ok');
-  qSel=id; updateQBadge();
-};
-window.qSelLoc=function(id){qSel=id;renderQLocs();updateQBadge();};
-function updateQBadge(){
-  const l=window.qLocs.find(x=>x.id===qSel);
-  document.getElementById('qGenBtn').disabled=!l;
-  const b=document.getElementById('qSelBadge');
-  if(l){b.style.display='flex';document.getElementById('qSelNom').textContent=l.nom;document.getElementById('qSelLoyer').textContent=parseFloat(l.loyer).toLocaleString('fr-FR')+' \u20ac/mois';}
-  else b.style.display='none';
-}
-window.qEditOpen=function(id,e){e.stopPropagation();const l=window.qLocs.find(x=>x.id===id);if(!l)return;document.getElementById('qEditId').value=id;document.getElementById('qEditNom').value=l.nom;document.getElementById('qEditAdresse').value=l.adresse;document.getElementById('qEditLoyer').value=l.loyer;document.getElementById('qEditModal').classList.add('open');};
-window.qSaveEdit=async function(){const id=document.getElementById('qEditId').value,nom=document.getElementById('qEditNom').value.trim(),adr=document.getElementById('qEditAdresse').value.trim(),loyer=document.getElementById('qEditLoyer').value.trim();if(!nom||!adr||!loyer){toast('Champs manquants','err');return;}await dbSet('qLocs',id,{nom,adresse:adr,loyer:parseFloat(loyer)});closeModal('qEditModal');if(qSel===id)updateQBadge();toast('Modifi\u00e9.','ok');};
-window.qDelLoc=async function(id,e){e.stopPropagation();const l=window.qLocs.find(x=>x.id===id);if(!confirm('Supprimer '+l?.nom+' ?'))return;await dbDel('qLocs',id);if(qSel===id){qSel=null;updateQBadge();}toast('Supprim\u00e9.','ok');};
-window.renderQLocs=function(){
-  const c=document.getElementById('qLocList');
-  if(!window.qLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#127969;</div>Aucun locataire.</div>';return;}
-  c.innerHTML=window.qLocs.map(l=>`<div class="loc-item${l.id===qSel?' sel':''}" onclick="qSelLoc('${l.id}')">
-    <div class="loc-av">${init(l.nom)}</div>
-    <div class="loc-info"><div class="loc-nom">${l.nom}</div><div class="loc-sub">${parseFloat(l.loyer).toLocaleString('fr-FR')} \u20ac/mois</div></div>
-    <div class="loc-actions"><button class="btn-edit-sm" onclick="qEditOpen('${l.id}',event)">&#9998;</button><button class="btn-danger-sm" onclick="qDelLoc('${l.id}',event)">&#128465;</button></div>
-  </div>`).join('');
-};
-window.genQuittance=async function(){
-  if(!qSel)return;
-  const loc=window.qLocs.find(l=>l.id===qSel);if(!loc)return;
-  const mois=+document.getElementById('qMois').value;
-  const annee=+document.getElementById('qAnnee').value;
-  const jp=+document.getElementById('qJourPaie').value;
-  try{
-    const pdf=genPdfQuittance(loc,mois,annee,jp);
-    const fn=`quittance_${loc.nom.replace(/\s+/g,'_')}_${MFRDOC[mois]}_${annee}.pdf`;
-    dlPDF(pdf,fn);
-    await dbAddHist({type:'Quittance',qui:loc.nom,periode:`${MCAPDOC[mois]} ${annee}`,montant:parseFloat(loc.loyer)+' \u20ac',fichier:fn});
-    toast('Quittance t\u00e9l\u00e9charg\u00e9e !','ok');
-  }catch(e){toast('Erreur : '+e.message,'err');}
-};
-window.renderQHist=function(){
-  const h=window.hist.filter(x=>x.type==='Quittance').slice(0,10);
-  const c=document.getElementById('qHistTable');
-  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
-};
-
-// ── FACTURES LOYER ────────────────────────────────────────────────
-window.fAjouter=async function(){
-  const nom=document.getElementById('fNewNom').value.trim();
-  const a1=document.getElementById('fNewAdr1').value.trim();
-  const a2=document.getElementById('fNewAdr2').value.trim();
-  const local=+document.getElementById('fNewLocal').value;
-  const ladr=document.getElementById('fNewLocalAdr').value.trim();
-  const ht=+document.getElementById('fNewHT').value;
-  const tva=+document.getElementById('fNewTVA').value;
-  if(!nom||!a1||!a2||!local||!ht){toast('Champs obligatoires manquants.','err');return;}
-  const id=Date.now().toString();
-  await dbSet('fLocs',id,{nom,adr1:a1,adr2:a2,local,localAdr:ladr,ht,tva:tva||20});
-  ['fNewNom','fNewAdr1','fNewAdr2','fNewLocal','fNewLocalAdr','fNewHT'].forEach(i=>document.getElementById(i).value='');
-  document.getElementById('fNewTVA').value='20';
-  toast(nom+' ajout\u00e9 !','ok');fSel=id;updateFBadge();
-};
-window.fSelLoc=function(id){fSel=id;renderFLocs();updateFBadge();};
-function updateFBadge(){
-  const l=window.fLocs.find(x=>x.id===fSel);
-  document.getElementById('fGenBtn').disabled=!l;
-  const b=document.getElementById('fSelBadge');
-  if(l){b.style.display='flex';document.getElementById('fSelNom').textContent=l.nom;document.getElementById('fSelHT').textContent=parseFloat(l.ht).toLocaleString('fr-FR')+' \u20ac HT';}
-  else b.style.display='none';
-}
-window.fEditOpen=function(id,e){e.stopPropagation();const l=window.fLocs.find(x=>x.id===id);if(!l)return;document.getElementById('fEditId').value=id;document.getElementById('fEditNom').value=l.nom;document.getElementById('fEditAdr1').value=l.adr1;document.getElementById('fEditAdr2').value=l.adr2;document.getElementById('fEditLocal').value=l.local;document.getElementById('fEditLocalAdr').value=l.localAdr||'';document.getElementById('fEditHT').value=l.ht;document.getElementById('fEditTVA').value=l.tva;document.getElementById('fEditModal').classList.add('open');};
-window.fSaveEdit=async function(){const id=document.getElementById('fEditId').value,nom=document.getElementById('fEditNom').value.trim(),a1=document.getElementById('fEditAdr1').value.trim(),a2=document.getElementById('fEditAdr2').value.trim(),local=+document.getElementById('fEditLocal').value,ladr=document.getElementById('fEditLocalAdr').value.trim(),ht=+document.getElementById('fEditHT').value,tva=+document.getElementById('fEditTVA').value;if(!nom||!a1||!a2){toast('Champs manquants','err');return;}await dbSet('fLocs',id,{nom,adr1:a1,adr2:a2,local,localAdr:ladr,ht,tva});closeModal('fEditModal');if(fSel===id)updateFBadge();toast('Modifi\u00e9.','ok');};
-window.fDelLoc=async function(id,e){e.stopPropagation();const l=window.fLocs.find(x=>x.id===id);if(!confirm('Supprimer '+l?.nom+' ?'))return;await dbDel('fLocs',id);if(fSel===id){fSel=null;updateFBadge();}toast('Supprim\u00e9.','ok');};
-window.renderFLocs=function(){
-  const c=document.getElementById('fLocList');
-  if(!window.fLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#127970;</div>Aucun locataire pro.</div>';return;}
-  c.innerHTML=window.fLocs.map(l=>`<div class="tenant-item${l.id===fSel?' sel':''}" onclick="fSelLoc('${l.id}')">
-    <div class="tenant-av">${init(l.nom)}</div>
-    <div class="loc-info"><div class="tenant-nom">${l.nom}</div><div class="tenant-sub">Local ${l.local} \u00b7 ${parseFloat(l.ht).toLocaleString('fr-FR')} \u20ac HT</div></div>
-    <div class="tenant-actions"><button class="btn-edit-sm" onclick="fEditOpen('${l.id}',event)">&#9998;</button><button class="btn-danger-sm" onclick="fDelLoc('${l.id}',event)">&#128465;</button></div>
-  </div>`).join('');
-};
-window.genLoyer=async function(){
-  if(!fSel)return;
-  const loc=window.fLocs.find(l=>l.id===fSel);if(!loc)return;
-  const mois=+document.getElementById('fMois').value;
-  const annee=+document.getElementById('fAnnee').value;
-  const jour=+document.getElementById('fJour').value;
-  try{
-    const pdf=genPdfLoyer(loc,mois,annee,jour);
-    const mNom=MCAPDOC[mois];
-    const fn=`facture_loyer_${loc.nom.replace(/\s+/g,'_')}_${mNom}_${annee}.pdf`;
-    dlPDF(pdf,fn);
-    const ht=loc.ht,tvaV=Math.round(ht*(loc.tva/100)*100)/100,ttc=Math.round((ht+tvaV)*100)/100;
-    await dbAddHist({type:'Facture loyer',qui:loc.nom,periode:`${mNom} ${annee}`,montant:ttc+' \u20ac TTC',fichier:fn});
-    toast('Facture t\u00e9l\u00e9charg\u00e9e !','ok');
-  }catch(e){toast('Erreur : '+e.message,'err');}
-};
-window.renderFHist=function(){
-  const h=window.hist.filter(x=>x.type==='Facture loyer').slice(0,10);
-  const c=document.getElementById('fHistTable');
-  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Soci\u00e9t\u00e9</th><th>P\u00e9riode</th><th>TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
-};
-
-// ── FOND DE COMMERCE ──────────────────────────────────────────────
-window.fdCalc=function(){
-  const lHT=+document.getElementById('fdLoyerHT').value||0;
-  const lTV=+document.getElementById('fdLoyerTVA').value||0;
-  const cHT=+document.getElementById('fdChargesHT').value||0;
-  const cTV=+document.getElementById('fdChargesTVA').value||0;
-  const lTC=lHT+lTV,cTC=cHT+cTV,tHT=lHT+cHT,tTV=lTV+cTV,tTC=lTC+cTC;
-  document.getElementById('fdLoyerTTC').value=lTC.toFixed(2);
-  document.getElementById('fdChargesTTC').value=cTC.toFixed(2);
-  document.getElementById('fdTotalHT').value=tHT.toFixed(2);
-  document.getElementById('fdTotalTVA').value=tTV.toFixed(2);
-  document.getElementById('fdTotalTTC').value=tTC.toFixed(2);
-  const m=+document.getElementById('fdMois').value,a=+document.getElementById('fdAnnee').value;
-  document.getElementById('fdPreview').textContent=
-`SASU CEVA PIZZA \u2192 Sasu Pizzeria Fascianella
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-P\u00e9riode  : ${MCAPDOC[m]} ${a}
-R\u00e9f\u00e9rence : ${a}-${pad2(m)}-F1
-
-Loyer fond de commerce
-  HT      : ${lHT.toFixed(2)} \u20ac
-  TVA 20% : ${lTV.toFixed(2)} \u20ac
-  TTC     : ${lTC.toFixed(2)} \u20ac
-
-Provision charges
-  HT      : ${cHT.toFixed(2)} \u20ac
-  TVA 20% : ${cTV.toFixed(2)} \u20ac
-  TTC     : ${cTC.toFixed(2)} \u20ac
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-Total HT  : ${tHT.toFixed(2)} \u20ac
-Total TVA : ${tTV.toFixed(2)} \u20ac
-TOTAL TTC : ${tTC.toFixed(2)} \u20ac
-
-En lettres : ${loyerLettres(tTC)}.`;
-};
-window.genFond=async function(){
-  const mois=+document.getElementById('fdMois').value;
-  const annee=+document.getElementById('fdAnnee').value;
-  const lHT=+document.getElementById('fdLoyerHT').value;
-  const lTV=+document.getElementById('fdLoyerTVA').value;
-  const cHT=+document.getElementById('fdChargesHT').value;
-  const cTV=+document.getElementById('fdChargesTVA').value;
-  const tTC=(lHT+lTV)+(cHT+cTV);
-  try{
-    const pdf=genPdfFond(mois,annee,lHT,lTV,cHT,cTV);
-    const mNom=MCAPDOC[mois];
-    const fn=`facture_fond_Fascianella_${mNom}_${annee}.pdf`;
-    dlPDF(pdf,fn);
-    await dbAddHist({type:'Fond de commerce',qui:'Pizzeria Fascianella',periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' \u20ac TTC',fichier:fn});
-    renderFdHist();
-    toast('Facture fond t\u00e9l\u00e9charg\u00e9e !','ok');
-  }catch(e){toast('Erreur : '+e.message,'err');}
-};
-window.renderFdHist=function(){
-  const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
-  const c=document.getElementById('fdHistTable');
-  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>P\u00e9riode</th><th>Total TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${h.map(x=>`<tr><td><span class="badge badge-gold">${x.periode}</span></td><td><strong>${x.montant}</strong></td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
-};
-
-// ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
-window.renderAllHist=function(){
-  const c=document.getElementById('allHistTable');
-  if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
-  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>B\u00e9n\u00e9ficiaire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
-};
-
-// ── HELPERS ───────────────────────────────────────────────────────
-window.showPage=function(id,btn){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('page-'+id).classList.add('active');
-  btn.classList.add('active');
-  if(id==='historique')renderAllHist();
-};
-window.closeModal=function(id){document.getElementById(id).classList.remove('open');};
-let tT;
-window.toast=function(msg,t='ok'){
-  const el=document.getElementById('toast');el.textContent=msg;el.className='toast '+t;
-  void el.offsetWidth;el.classList.add('show');clearTimeout(tT);tT=setTimeout(()=>el.classList.remove('show'),3200);
-};
-
-// ── INIT ──────────────────────────────────────────────────────────
-const now=new Date();
-['qMois','fMois','fdMois'].forEach(id=>document.getElementById(id).value=now.getMonth()+1);
-['qAnnee','fAnnee','fdAnnee'].forEach(id=>document.getElementById(id).value=now.getFullYear());
-['fdLoyerHT','fdLoyerTVA','fdChargesHT','fdChargesTVA','fdMois','fdAnnee'].forEach(id=>{
-  document.getElementById(id).addEventListener('input',window.fdCalc);
-});
-window.fdCalc();
-const _today=new Date(); const _bail=document.getElementById('bailDateDebut'); if(_bail)_bail.value=_today.toISOString().split('T')[0];
-// Auto-fill lettres defaults
-const _bl=document.getElementById('bailLoyerLettres'); if(_bl&&!_bl.value){_bl.value=loyerLettres(550);}
-const _bd=document.getElementById('bailDepotLettres'); if(_bd&&!_bd.value){_bd.value=loyerLettres(550);}
-
-// ── BAIL ──────────────────────────────────────────────────────────
-// Auto-fill lettres when loyer/depot changes
-document.getElementById('bailLoyer').addEventListener('input', function() {
-  const v = +this.value;
-  if(v) document.getElementById('bailLoyerLettres').value = loyerLettres(v);
-});
-document.getElementById('bailDepot').addEventListener('input', function() {
-  const v = +this.value;
-  if(v) document.getElementById('bailDepotLettres').value = loyerLettres(v);
-});
-
-window.renderBailHist = function() {
-  const h = window.hist.filter(x => x.type === 'Bail').slice(0, 10);
-  const c = document.getElementById('bailHistTable');
-  if (!h.length) { c.innerHTML = '<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail généré.</div>'; return; }
-  c.innerHTML = `<table class="hist-table"><thead><tr><th>Locataire</th><th>Adresse</th><th>Loyer</th><th>Généré le</th></tr></thead><tbody>${h.map(x => `<tr><td><strong>${x.qui}</strong></td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
-};
-
-window.genBail = async function() {
-  const nom       = document.getElementById('bailNom').value.trim();
-  const locAdr    = document.getElementById('bailLocAdresse').value.trim();
-  const adresse   = document.getElementById('bailAdresse').value.trim();
-  const surface   = document.getElementById('bailSurface').value;
-  const pieces    = document.getElementById('bailPieces').value;
-  const dateDebut = document.getElementById('bailDateDebut').value;
-  const duree     = +document.getElementById('bailDuree').value;
-  const loyer     = +document.getElementById('bailLoyer').value;
-  const loyerL    = document.getElementById('bailLoyerLettres').value.trim() || loyerLettres(loyer);
-  const charges   = +document.getElementById('bailCharges').value;
-  const jourPaie  = document.getElementById('bailJourPaie').value;
-  const depot     = +document.getElementById('bailDepot').value;
-  const depotL    = document.getElementById('bailDepotLettres').value.trim() || loyerLettres(depot);
-
-  if (!nom || !adresse || !dateDebut || !loyer) { toast('Remplissez les champs obligatoires (locataire, adresse, date, loyer).', 'err'); return; }
-
-  const dDebut = new Date(dateDebut);
-  const dFin   = new Date(dateDebut);
-  dFin.setFullYear(dFin.getFullYear() + duree);
-  const fmtDate = d => `${pad2(d.getDate())}/${pad2(d.getMonth()+1)}/${d.getFullYear()}`;
-  const dateD = fmtDate(dDebut), dateF = fmtDate(dFin);
-  const today = fmtDate(new Date());
-
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
-  const W = 210, ml = 20, mr = 20, cw = W - ml - mr;
-  let y = 18;
-  const DARK = [22,33,62], GREY = [90,90,90];
-
-  function addText(txt, font, size, color, align) {
-    pdf.setFont('helvetica', font||'normal');
-    pdf.setFontSize(size||10);
-    pdf.setTextColor(...(color||GREY));
-    const lines = pdf.splitTextToSize(txt, cw);
-    pdf.text(lines, align==='center' ? W/2 : ml, y, align==='center' ? {align:'center'} : {});
-    y += lines.length * (size||10) * 0.42 + 2;
-  }
-  function titre(txt, sz) { addText(txt,'bold',sz||13,DARK,'center'); }
-  function section(txt) { y+=3; addText(txt,'bold',10.5,DARK); y+=1; }
-  function info(label, val) {
-    pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(...GREY);
-    pdf.text(label, ml+4, y);
-    pdf.setFont('helvetica','normal');
-    const lines = pdf.splitTextToSize(val, cw-60);
-    pdf.text(lines, ml+55, y);
-    y += Math.max(lines.length, 1) * 4.8;
-  }
-  function hr(col) { pdf.setDrawColor(...(col||[200,200,200])); pdf.setLineWidth(0.3); pdf.line(ml,y,W-mr,y); y+=5; }
-  function chk() { if(y>272) { pdf.addPage(); y=18; } }
-
-  // TITRE
-  titre('CONTRAT DE LOCATION', 16); titre('POUR LOGEMENT NON MEUBLE', 13);
-  hr(DARK); y+=2;
-
-  // I. PARTIES
-  chk(); section('I. DESIGNATION DES PARTIES');
-  info('Bailleur :', 'SCI THOMARION - MARTIN Thomas');
-  info('Adresse :', '83 avenue Jean Camps, 11100 Narbonne');
-  info('Contact :', 'tmjumeaux@orange.fr - 06 63 09 74 82 - Siret : 918 029 810 00010');
-  y+=3;
-  info('Locataire :', nom);
-  if(locAdr) info('Adresse locataire :', locAdr);
-  hr();
-
-  // II. OBJET
-  chk(); section('II. OBJET DU CONTRAT');
-  info('Adresse du logement :', adresse);
-  info('Surface habitable :', surface + ' m²');
-  info('Nombre de pièces :', pieces);
-  info('Type :', 'Usage d’habitation - Mono-propriété - Avant 1949');
-  info('Equipements :', 'Cuisine équipée, salle d’eau (douche, lavabo, WC), chauffage individuel, eau chaude individuelle');
-  info('Internet :', 'Réception TV par internet (fibre) dans les communs');
-  hr();
-
-  // III. DUREE
-  chk(); section('III. DATE DE PRISE D'EFFET ET DUREE');
-  info('Date de début :', dateD);
-  info('Date de fin :', dateF);
-  info('Durée :', duree + ' ans' + (duree===3?' (personne physique)':duree===6?' (personne morale)':' (durée réduite)'));
-  addText('En l’absence de proposition de renouvellement, le contrat est reconduit tacitement. Le locataire peut y mettre fin à tout moment avec un préavis de 3 mois.','italic',9,GREY);
-  hr();
-
-  // IV. CONDITIONS FINANCIERES
-  chk(); section('IV. CONDITIONS FINANCIERES');
-  info('Loyer mensuel :', loyer.toLocaleString('fr-FR') + ' € (' + loyerL + ')');
-  info('Charges récupérables :', charges + ' €/mois - Révisées tous les deux mois');
-  info('Total mensuel :', (loyer + charges).toLocaleString('fr-FR') + ' €');
-  info('Révision :', 'Pas de révision de loyer pendant la période du bail');
-  info('Paiement :', 'Le ' + jourPaie + ' de chaque mois - À échoir - Virement bancaire');
-  hr();
-
-  // V. DEPOT
-  chk(); section('V. DEPOT DE GARANTIE');
-  info('Montant :', depot.toLocaleString('fr-FR') + ' € (' + depotL + ') - Par virement');
-  hr();
-
-  // VI. CLAUSES
-  chk(); section('VI. CLAUSE RESOLUTOIRE');
-  addText('Le bail sera résilié de plein droit en cas de défaut de paiement des loyers et charges pendant deux mois, de non-versement du dépôt de garantie, de défaut d’assurance locative, ou de troubles de voisinage constatés par décision de justice.','normal',9,GREY);
-  y+=3;
-  section('VII. ANNEXES');
-  for(const a of ['Dossier de diagnostic technique (DPE, plomb, amiante, électricité, gaz)','Notice d’information droits et obligations des locataires et bailleurs','Etat des lieux d’entrée']){
-    addText('- ' + a,'normal',9,GREY);
-  }
-  hr();
-
-  // SIGNATURES
-  chk(); y+=4;
-  addText('Fait à Narbonne, le ' + today,'normal',9.5,GREY);
-  y+=8;
-  const c1=ml, c2=W/2+5;
-  pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(...DARK);
-  pdf.text('Signature du bailleur',c1,y); pdf.text('Signature du locataire',c2,y); y+=4;
-  pdf.setFont('helvetica','italic'); pdf.setFontSize(8.5); pdf.setTextColor(...GREY);
-  pdf.text('(précédée de « Lu et approuvé »)',c1,y); pdf.text('(précédée de « Lu et approuvé »)',c2,y); y+=16;
-  pdf.setDrawColor(180,180,180); pdf.setLineWidth(0.4);
-  pdf.line(c1,y,c1+70,y); pdf.line(c2,y,c2+70,y);
-
-  // PIED
-  pdf.setDrawColor(...DARK); pdf.setLineWidth(0.4); pdf.line(ml,290,W-mr,290);
-  pdf.setFont('helvetica','normal'); pdf.setFontSize(7.5); pdf.setTextColor(...DARK);
-  pdf.text('SCI Thomarion • 83 av. Jean Camps, 11100 Narbonne • 06 63 09 74 82 • Siret : 918 029 810 00010 • Bail conforme loi ALUR',W/2,294,{align:'center'});
-
-  const fn = 'bail_' + nom.replace(/\s+/g,'_') + '_' + dateD.replace(/\//g,'-') + '.pdf';
-  dlPDF(pdf, fn);
-  await dbAddHist({type:'Bail', qui:nom, periode:adresse, montant:loyer+' €', fichier:fn});
-  renderBailHist();
-  toast('Bail généré !', 'ok');
-};
-</script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#16213e;--paper:#f4f1eb;--accent:#c8a96e;--blue:#2176ae;--blue-light:#e8f3fb;--muted:#7a7468;--border:#e0dbd0;--card:#fff;--danger:#c0392b;--danger-light:#fdf0ef;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);min-height:100vh;}
-#loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--ink);}
-.login-box{background:white;border-radius:16px;padding:2.5rem;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.3);}
-.login-logo{font-family:'DM Serif Display',serif;font-size:1.6rem;color:var(--ink);text-align:center;margin-bottom:.25rem;}
-.login-logo span{color:var(--accent);}
-.login-sub{text-align:center;font-size:.8rem;color:var(--muted);margin-bottom:2rem;}
-.login-field{margin-bottom:1rem;}
-.login-field label{display:block;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:.35rem;}
-.login-field input{width:100%;padding:.65rem .9rem;border:1.5px solid var(--border);border-radius:8px;font-family:'DM Sans',sans-serif;font-size:.9rem;outline:none;}
-.login-field input:focus{border-color:var(--blue);}
-.login-btn{width:100%;background:var(--ink);color:white;border:none;border-radius:8px;padding:.75rem;font-family:'DM Sans',sans-serif;font-size:.95rem;font-weight:600;cursor:pointer;transition:background .15s;margin-top:.5rem;}
-.login-btn:hover{background:#243460;}
-.login-err{color:var(--danger);font-size:.8rem;text-align:center;margin-top:.75rem;min-height:1.2em;}
-#mainApp{display:block;}
-.topbar{background:var(--ink);color:white;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;height:56px;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(0,0,0,.22);}
-.topbar-left{display:flex;align-items:center;gap:1.5rem;}
-.topbar-brand{font-family:'DM Serif Display',serif;font-size:1.1rem;white-space:nowrap;}
+.topbar{background:var(--ink);color:white;display:flex;align-items:center;padding:0 1.5rem;height:56px;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(0,0,0,.22);gap:2rem;}
+.topbar-brand{font-family:'DM Serif Display',serif;font-size:1.1rem;white-space:nowrap;flex-shrink:0;}
 .topbar-brand span{color:var(--accent);}
-.tabs{display:flex;}
+.tabs{display:flex;flex-wrap:wrap;}
 .tab-btn{background:none;border:none;color:rgba(255,255,255,.5);font-family:'DM Sans',sans-serif;font-size:.78rem;font-weight:500;padding:.35rem .9rem;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;text-transform:uppercase;letter-spacing:.04em;}
 .tab-btn:hover{color:rgba(255,255,255,.85);}
 .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);}
-.topbar-right{display:flex;align-items:center;gap:.75rem;font-size:.78rem;color:rgba(255,255,255,.5);}
-.logout-btn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:rgba(255,255,255,.7);padding:.3rem .75rem;border-radius:6px;font-size:.75rem;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .15s;}
-.logout-btn:hover{background:rgba(255,255,255,.15);color:white;}
 .page{display:none;max-width:1140px;margin:0 auto;padding:1.75rem 1.5rem;}
 .page.active{display:block;}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.04);}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.04);margin-bottom:1.2rem;}
+.card:last-child{margin-bottom:0;}
 .card-head{background:var(--ink);color:white;padding:.65rem 1.2rem;font-size:.7rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;}
 .card-body{padding:1.2rem;}
 .field{margin-bottom:.85rem;}
@@ -854,22 +40,21 @@ input:focus,select:focus{border-color:var(--blue);background:white;}
 input[readonly]{background:#f0f0f0;opacity:.7;}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.7rem;}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;padding:.52rem 1rem;border:none;border-radius:7px;font-family:'DM Sans',sans-serif;font-size:.84rem;font-weight:500;cursor:pointer;transition:all .15s;}
-.btn-dark{background:var(--ink);color:white;width:100%;margin-top:.15rem;}
-.btn-dark:hover{background:#243460;transform:translateY(-1px);}
-.btn-gold{background:var(--accent);color:white;}
+.btn-add{display:block;width:100%;background:var(--ink);color:white;border:none;border-radius:7px;padding:.55rem 1rem;font-family:'DM Sans',sans-serif;font-size:.84rem;font-weight:500;cursor:pointer;margin-top:.2rem;transition:all .15s;}
+.btn-add:hover{background:#243460;transform:translateY(-1px);}
+.btn-gold{display:block;width:100%;background:var(--accent);color:white;border:none;border-radius:7px;padding:.6rem 1rem;font-family:'DM Sans',sans-serif;font-size:.9rem;font-weight:600;cursor:pointer;transition:all .15s;}
 .btn-gold:hover{background:#b8944f;}
-.btn-ghost{background:transparent;color:var(--muted);border:1.5px solid var(--border);}
+.btn-ghost{background:transparent;color:var(--muted);border:1.5px solid var(--border);border-radius:7px;padding:.5rem 1rem;font-family:'DM Sans',sans-serif;font-size:.84rem;cursor:pointer;}
 .btn-ghost:hover{border-color:var(--blue);color:var(--blue);}
-.btn-danger-sm{background:transparent;color:var(--danger);border:1.5px solid #f5c6c2;padding:.32rem .6rem;font-size:.72rem;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;}
-.btn-danger-sm:hover{background:var(--danger-light);}
-.btn-edit-sm{background:transparent;color:var(--blue);border:1.5px solid #cce9f3;padding:.32rem .6rem;font-size:.72rem;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;}
-.btn-edit-sm:hover{background:var(--blue-light);}
-.btn-gen{background:var(--accent);color:white;border:none;border-radius:8px;padding:.58rem 1.3rem;font-family:'DM Sans',sans-serif;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn-gen{background:var(--accent);color:white;border:none;border-radius:8px;padding:.58rem 1.3rem;font-family:'DM Sans',sans-serif;font-size:.88rem;font-weight:600;cursor:pointer;transition:all .15s;white-space:nowrap;touch-action:manipulation;}
 .btn-gen:hover:not(:disabled){background:#b8944f;transform:translateY(-1px);box-shadow:0 4px 16px rgba(200,169,110,.35);}
 .btn-gen:disabled{opacity:.4;cursor:not-allowed;}
+.btn-edit-sm{background:transparent;color:var(--blue);border:1.5px solid #cce9f3;padding:.32rem .6rem;font-size:.72rem;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-edit-sm:hover{background:var(--blue-light);}
+.btn-danger-sm{background:transparent;color:var(--danger);border:1.5px solid #f5c6c2;padding:.32rem .6rem;font-size:.72rem;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;}
+.btn-danger-sm:hover{background:var(--danger-light);}
 .two-col{display:grid;grid-template-columns:285px 1fr;gap:1.5rem;}
-.three-col{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem;}
 .section-title{font-family:'DM Serif Display',serif;font-size:1.35rem;margin-bottom:1.2rem;padding-bottom:.55rem;border-bottom:2px solid var(--border);display:flex;align-items:center;gap:.7rem;}
 .pill{font-family:'DM Sans',sans-serif;font-size:.7rem;font-weight:600;background:var(--accent);color:white;padding:.18rem .65rem;border-radius:100px;text-transform:uppercase;}
 .gen-panel{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:1.5rem;}
@@ -881,19 +66,18 @@ input[readonly]{background:#f0f0f0;opacity:.7;}
 .gen-body{padding:1.2rem 1.6rem;}
 .gen-row{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:.85rem;align-items:end;}
 .loc-list,.tenant-list{display:flex;flex-direction:column;}
-.loc-item,.tenant-item{padding:.75rem 1.1rem;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;display:flex;align-items:center;gap:.65rem;}
+.loc-item,.tenant-item{padding:.75rem 1.1rem;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;display:flex;align-items:center;gap:.65rem;touch-action:manipulation;-webkit-tap-highlight-color:rgba(33,118,174,.15);}
 .loc-item:last-child,.tenant-item:last-child{border-bottom:none;}
-.loc-item:hover,.tenant-item:hover{background:#f5f2ec;}
+.loc-item:hover,.tenant-item:hover,.loc-item:active,.tenant-item:active{background:#f0eee8;}
 .loc-item.sel,.tenant-item.sel{background:var(--blue-light);border-left:3px solid var(--blue);}
 .loc-av{width:33px;height:33px;border-radius:50%;background:var(--ink);color:white;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'DM Serif Display',serif;font-size:.8rem;}
 .tenant-av{width:31px;height:31px;border-radius:7px;background:var(--blue);color:white;display:flex;align-items:center;justify-content:center;font-size:.76rem;font-weight:700;flex-shrink:0;}
 .loc-info{flex:1;min-width:0;}
 .loc-nom,.tenant-nom{font-weight:600;font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .loc-sub,.tenant-sub{font-size:.7rem;color:var(--muted);}
-.loc-actions,.tenant-actions{display:flex;gap:.32rem;opacity:0;transition:opacity .15s;}
-.loc-item:hover .loc-actions,.tenant-item:hover .tenant-actions{opacity:1;}
-.form-section{margin-bottom:1.1rem;}
-.form-section-title{font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.65rem;padding-bottom:.32rem;border-bottom:1px solid var(--border);}
+.loc-actions{display:flex;gap:.32rem;}
+@media(hover:hover){.loc-actions{opacity:0;transition:opacity .15s;}.loc-item:hover .loc-actions,.tenant-item:hover .loc-actions{opacity:1;}}
+.fsec-title{font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.65rem;padding-bottom:.32rem;border-bottom:1px solid var(--border);}
 .hist-table{width:100%;border-collapse:collapse;font-size:.82rem;}
 .hist-table th{text-align:left;padding:.52rem 1rem;font-size:.67rem;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);border-bottom:1.5px solid var(--border);}
 .hist-table td{padding:.62rem 1rem;border-bottom:1px solid var(--border);vertical-align:middle;}
@@ -915,246 +99,287 @@ input[readonly]{background:#f0f0f0;opacity:.7;}
 .modal-foot{padding:.85rem 1.35rem;border-top:1px solid var(--border);display:flex;gap:.65rem;justify-content:flex-end;}
 .toast{position:fixed;bottom:1.6rem;left:50%;transform:translateX(-50%) translateY(130%);background:var(--ink);color:white;padding:.6rem 1.3rem;border-radius:100px;font-size:.84rem;box-shadow:0 8px 28px rgba(0,0,0,.22);transition:transform .3s cubic-bezier(.34,1.56,.64,1);z-index:999;white-space:nowrap;}
 .toast.show{transform:translateX(-50%) translateY(0);}
-.toast.ok::before{content:"ok  ";color:#5dde7a;}
-.toast.err::before{content:"err  ";color:#e74c3c;}
+.toast.ok::before{content:"\2713  ";color:#5dde7a;}
+.toast.err::before{content:"\2717  ";color:#e74c3c;}
+hr.sep{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
 .preview-box{background:#faf9f7;border-radius:8px;padding:.9rem;font-family:monospace;font-size:.74rem;white-space:pre-line;color:var(--ink);line-height:1.6;}
-hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
-@media(max-width:820px){.two-col,.three-col{grid-template-columns:1fr;}.gen-row{grid-template-columns:1fr 1fr;}.gen-row>*:last-child{grid-column:span 2;}.row3{grid-template-columns:1fr 1fr;}.tabs .tab-btn{padding:.35rem .55rem;font-size:.7rem;}}
+@media(max-width:820px){.two-col{grid-template-columns:1fr;}.gen-row{grid-template-columns:1fr 1fr;}.gen-row>*:last-child{grid-column:span 2;}.row3{grid-template-columns:1fr 1fr;}.three-col{grid-template-columns:1fr;}.tabs .tab-btn{padding:.35rem .55rem;font-size:.7rem;}}
 </style>
 </head>
 <body>
 
+<div class="topbar">
+  <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
+    <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
+    <button class="tab-btn" onclick="showPage('fond',this)">&#129309; Fond de commerce</button>
+    <button class="tab-btn" onclick="showPage('bail',this)">&#128209; Baux</button>
+    <button class="tab-btn" onclick="showPage('historique',this)">&#128203; Historique</button>
+  </div>
 </div>
 
-<div id="mainApp">
-  <div class="topbar">
-    <div class="topbar-left">
-      <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div class="tabs">
-        <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
-        <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
-        <button class="tab-btn" onclick="showPage('fond',this)">&#129309; Fond de commerce</button>
-        <button class="tab-btn" onclick="showPage('bail',this)">&#128209; Baux</button>
-        <button class="tab-btn" onclick="showPage('historique',this)">&#128203; Historique</button>
-      </div>
-    </div>
-
-  </div>
-
-  <div id="page-quittances" class="page active">
-    <div class="section-title">Quittances de loyer <span class="pill">Particuliers</span></div>
-    <div class="two-col">
-      <aside>
-        <div class="card" style="margin-bottom:1.2rem">
-          <div class="card-head">&#128101; Locataires</div>
-          <div id="qLocList" class="loc-list"><div class="empty"><div class="empty-icon">&#127969;</div>Aucun locataire.</div></div>
-        </div>
-        <div class="card">
-          <div class="card-head">&#10133; Nouveau locataire</div>
-          <div class="card-body">
-            <div class="field"><label>Civilit&eacute; + Nom</label><input id="qNewNom" placeholder="ex: Mme Dupont Marie"/></div>
-            <div class="field"><label>Adresse du bien</label><input id="qNewAdresse" placeholder="ex: 12 rue Hugo, 75001 Paris"/></div>
-            <div class="field"><label>Loyer mensuel (&euro;)</label><input id="qNewLoyer" type="number" placeholder="450" min="1"/></div>
-            <button class="btn btn-dark" onclick="qAjouter()">&#10133; Ajouter</button>
-          </div>
-        </div>
-      </aside>
-      <main>
-        <div class="gen-panel">
-          <div class="gen-head">
-            <h2>G&eacute;n&eacute;rer une quittance</h2>
-            <p>S&eacute;lectionnez un locataire, choisissez le mois.</p>
-            <div id="qSelBadge" class="sel-badge" style="display:none">
-              <span class="tag">S&eacute;lectionn&eacute;</span>
-              <span id="qSelNom">-</span><span style="opacity:.4">&middot;</span>
-              <span id="qSelLoyer" style="color:var(--accent)">-</span>
-            </div>
-          </div>
-          <div class="gen-body">
-            <div class="gen-row">
-              <div class="field"><label>Mois</label><select id="qMois"><option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option><option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option><option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option><option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option></select></div>
-              <div class="field"><label>Ann&eacute;e</label><input id="qAnnee" type="number" value="2026" min="2020" max="2040"/></div>
-              <div class="field"><label>Jour paiement</label><input id="qJourPaie" type="number" value="2" min="1" max="28"/></div>
-              <div><button class="btn-gen" id="qGenBtn" onclick="genQuittance()" disabled>&#128196; PDF</button></div>
-            </div>
-          </div>
-        </div>
-        <div class="card"><div class="card-head">&#128203; Derni&egrave;res quittances</div><div id="qHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div></div></div>
-      </main>
-    </div>
-  </div>
-
-  <div id="page-loyer" class="page">
-    <div class="section-title">Factures de loyer <span class="pill">Professionnels</span></div>
-    <div class="two-col">
-      <aside>
-        <div class="card" style="margin-bottom:1.2rem">
-          <div class="card-head">&#127970; Locataires pro</div>
-          <div id="fLocList" class="tenant-list"><div class="empty"><div class="empty-icon">&#127970;</div>Aucun locataire pro.</div></div>
-        </div>
-        <div class="card">
-          <div class="card-head">&#10133; Nouveau locataire pro</div>
-          <div class="card-body">
-            <div class="field"><label>Nom soci&eacute;t&eacute;</label><input id="fNewNom" placeholder="ex: Sasu Smoke and Smile"/></div>
-            <div class="field"><label>Adresse ligne 1</label><input id="fNewAdr1" placeholder="83A avenue Jean Camp"/></div>
-            <div class="field"><label>CP + Ville</label><input id="fNewAdr2" placeholder="11100 Narbonne"/></div>
-            <div class="row2">
-              <div class="field"><label>Local n&deg;</label><input id="fNewLocal" type="number" placeholder="1" min="1" max="9"/></div>
-              <div class="field"><label>Adresse local</label><input id="fNewLocalAdr" placeholder="83a avenue Jean Camps..."/></div>
-            </div>
-            <div class="row2">
-              <div class="field"><label>Loyer HT (&euro;)</label><input id="fNewHT" type="number" step="0.01" placeholder="750.00"/></div>
-              <div class="field"><label>TVA (%)</label><input id="fNewTVA" type="number" value="20" step="0.01"/></div>
-            </div>
-            <button class="btn btn-dark" onclick="fAjouter()">&#10133; Ajouter</button>
-          </div>
-        </div>
-      </aside>
-      <main>
-        <div class="gen-panel">
-          <div class="gen-head">
-            <h2>G&eacute;n&eacute;rer une facture de loyer</h2>
-            <p>SCI Thomarion &rarr; Locataire professionnel</p>
-            <div id="fSelBadge" class="sel-badge" style="display:none">
-              <span class="tag">S&eacute;lectionn&eacute;</span>
-              <span id="fSelNom">-</span><span style="opacity:.4">&middot;</span>
-              <span id="fSelHT" style="color:var(--accent)">-</span>
-            </div>
-          </div>
-          <div class="gen-body">
-            <div class="gen-row">
-              <div class="field"><label>Mois</label><select id="fMois"><option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option><option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option><option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option><option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option></select></div>
-              <div class="field"><label>Ann&eacute;e</label><input id="fAnnee" type="number" value="2026" min="2020" max="2040"/></div>
-              <div class="field"><label>Jour &eacute;mission</label><input id="fJour" type="number" value="1" min="1" max="31"/></div>
-              <div><button class="btn-gen" id="fGenBtn" onclick="genLoyer()" disabled>&#128196; PDF</button></div>
-            </div>
-          </div>
-        </div>
-        <div class="card"><div class="card-head">&#128203; Derni&egrave;res factures loyer</div><div id="fHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div></div>
-      </main>
-    </div>
-  </div>
-
-  <div id="page-fond" class="page">
-    <div class="section-title">Fond de commerce <span class="pill">SASU Ceva Pizza</span></div>
-    <div class="three-col">
+<!-- ═══ QUITTANCES ═══ -->
+<div id="page-quittances" class="page active">
+  <div class="section-title">Quittances de loyer <span class="pill">Particuliers</span></div>
+  <div class="two-col">
+    <aside>
       <div class="card">
-        <div class="card-head">&#9881; Param&egrave;tres</div>
+        <div class="card-head">&#128101; Locataires</div>
+        <div id="qLocList" class="loc-list"><div class="empty"><div class="empty-icon">&#127969;</div>Aucun locataire.</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head">&#10133; Nouveau locataire</div>
         <div class="card-body">
-          <div class="form-section">
-            <div class="form-section-title">&#128197; P&eacute;riode</div>
-            <div class="row2">
-              <div class="field"><label>Mois</label><select id="fdMois"><option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option><option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option><option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option><option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option></select></div>
-              <div class="field"><label>Ann&eacute;e</label><input id="fdAnnee" type="number" value="2026" min="2020" max="2040"/></div>
-            </div>
+          <div class="field"><label>Civilit&eacute; + Nom</label><input id="qNewNom" placeholder="ex: Mme Dupont Marie"/></div>
+          <div class="field"><label>Adresse du bien</label><input id="qNewAdresse" placeholder="ex: 12 rue Hugo, 11100 Narbonne"/></div>
+          <div class="field"><label>Loyer mensuel (&euro;)</label><input id="qNewLoyer" type="number" placeholder="450" min="1"/></div>
+          <button class="btn-add" onclick="qAjouter()">&#10133; Ajouter</button>
+        </div>
+      </div>
+    </aside>
+    <main>
+      <div class="gen-panel">
+        <div class="gen-head">
+          <h2>G&eacute;n&eacute;rer une quittance</h2>
+          <p>S&eacute;lectionnez un locataire puis choisissez le mois.</p>
+          <div id="qSelBadge" class="sel-badge" style="display:none">
+            <span class="tag">S&eacute;lectionn&eacute;</span>
+            <span id="qSelNom">-</span><span style="opacity:.4">&middot;</span>
+            <span id="qSelLoyer" style="color:var(--accent)">-</span>
           </div>
-          <div class="form-section">
-            <div class="form-section-title">&#127968; Loyer fond de commerce</div>
-            <div class="row3">
-              <div class="field"><label>HT (&euro;)</label><input id="fdLoyerHT" type="number" step="0.01" value="333.34"/></div>
-              <div class="field"><label>TVA (&euro;)</label><input id="fdLoyerTVA" type="number" step="0.01" value="66.66"/></div>
-              <div class="field"><label>TTC (&euro;)</label><input id="fdLoyerTTC" type="number" step="0.01" readonly/></div>
-            </div>
+        </div>
+        <div class="gen-body">
+          <div class="gen-row">
+            <div class="field"><label>Mois</label><select id="qMois">
+              <option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option>
+              <option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option>
+              <option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option>
+              <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option>
+            </select></div>
+            <div class="field"><label>Ann&eacute;e</label><input id="qAnnee" type="number" value="2026" min="2020" max="2040"/></div>
+            <div class="field"><label>Jour paiement</label><input id="qJourPaie" type="number" value="2" min="1" max="28"/></div>
+            <div><button class="btn-gen" id="qGenBtn" onclick="genQuittance()" disabled>&#128196; PDF</button></div>
           </div>
-          <div class="form-section">
-            <div class="form-section-title">&#9889; Provision charges</div>
-            <div class="row3">
-              <div class="field"><label>HT (&euro;)</label><input id="fdChargesHT" type="number" step="0.01" value="166.67"/></div>
-              <div class="field"><label>TVA (&euro;)</label><input id="fdChargesTVA" type="number" step="0.01" value="33.33"/></div>
-              <div class="field"><label>TTC (&euro;)</label><input id="fdChargesTTC" type="number" step="0.01" readonly/></div>
-            </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">&#128203; Derni&egrave;res quittances</div>
+        <div id="qHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ═══ FACTURES LOYER ═══ -->
+<div id="page-loyer" class="page">
+  <div class="section-title">Factures de loyer <span class="pill">Professionnels</span></div>
+  <div class="two-col">
+    <aside>
+      <div class="card">
+        <div class="card-head">&#127970; Locataires pro</div>
+        <div id="fLocList" class="tenant-list"><div class="empty"><div class="empty-icon">&#127970;</div>Aucun locataire pro.</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head">&#10133; Nouveau locataire pro</div>
+        <div class="card-body">
+          <div class="field"><label>Nom soci&eacute;t&eacute;</label><input id="fNewNom" placeholder="Sasu Smoke and Smile"/></div>
+          <div class="field"><label>Adresse ligne 1</label><input id="fNewAdr1" placeholder="83A avenue Jean Camp"/></div>
+          <div class="field"><label>CP + Ville</label><input id="fNewAdr2" placeholder="11100 Narbonne"/></div>
+          <div class="row2">
+            <div class="field"><label>Local n&deg;</label><input id="fNewLocal" type="number" placeholder="1" min="1" max="9"/></div>
+            <div class="field"><label>Adresse local</label><input id="fNewLocalAdr" placeholder="83a avenue Jean Camps..."/></div>
           </div>
-          <hr/>
+          <div class="row2">
+            <div class="field"><label>Loyer HT (&euro;)</label><input id="fNewHT" type="number" step="0.01" placeholder="750.00"/></div>
+            <div class="field"><label>TVA (%)</label><input id="fNewTVA" type="number" value="20" step="0.01"/></div>
+          </div>
+          <button class="btn-add" onclick="fAjouter()">&#10133; Ajouter</button>
+        </div>
+      </div>
+    </aside>
+    <main>
+      <div class="gen-panel">
+        <div class="gen-head">
+          <h2>G&eacute;n&eacute;rer une facture de loyer</h2>
+          <p>SCI Thomarion &rarr; Locataire professionnel</p>
+          <div id="fSelBadge" class="sel-badge" style="display:none">
+            <span class="tag">S&eacute;lectionn&eacute;</span>
+            <span id="fSelNom">-</span><span style="opacity:.4">&middot;</span>
+            <span id="fSelHT" style="color:var(--accent)">-</span>
+          </div>
+        </div>
+        <div class="gen-body">
+          <div class="gen-row">
+            <div class="field"><label>Mois</label><select id="fMois">
+              <option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option>
+              <option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option>
+              <option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option>
+              <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option>
+            </select></div>
+            <div class="field"><label>Ann&eacute;e</label><input id="fAnnee" type="number" value="2026" min="2020" max="2040"/></div>
+            <div class="field"><label>Jour &eacute;mission</label><input id="fJour" type="number" value="1" min="1" max="31"/></div>
+            <div><button class="btn-gen" id="fGenBtn" onclick="genLoyer()" disabled>&#128196; PDF</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">&#128203; Derni&egrave;res factures loyer</div>
+        <div id="fHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ═══ FOND DE COMMERCE ═══ -->
+<div id="page-fond" class="page">
+  <div class="section-title">Fond de commerce <span class="pill">Location-g&eacute;rance</span></div>
+  <div class="two-col">
+    <aside>
+      <div class="card">
+        <div class="card-head">&#129309; G&eacute;rants</div>
+        <div id="fdLocList" class="tenant-list"><div class="empty"><div class="empty-icon">&#129309;</div>Aucun g&eacute;rant.</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head">&#10133; Nouveau g&eacute;rant</div>
+        <div class="card-body">
+          <div class="field"><label>Soci&eacute;t&eacute; g&eacute;rante</label><input id="fdNewNom" placeholder="Sasu Pizzeria Fascianella"/></div>
+          <div class="field"><label>Adresse commerce</label><input id="fdNewAdr" placeholder="83A avenue Jean Camp, 11100 Narbonne"/></div>
+          <div class="field"><label>&Eacute;metteur facture</label><input id="fdNewEmetteur" placeholder="SASU Ceva Pizza"/></div>
+          <div class="row2">
+            <div class="field"><label>Loyer HT (&euro;)</label><input id="fdNewLoyerHT" type="number" step="0.01" placeholder="333.34"/></div>
+            <div class="field"><label>TVA loyer (&euro;)</label><input id="fdNewLoyerTVA" type="number" step="0.01" placeholder="66.66"/></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Charges HT (&euro;)</label><input id="fdNewChargesHT" type="number" step="0.01" placeholder="166.67"/></div>
+            <div class="field"><label>TVA charges (&euro;)</label><input id="fdNewChargesTVA" type="number" step="0.01" placeholder="33.33"/></div>
+          </div>
+          <button class="btn-add" onclick="fdAjouter()">&#10133; Ajouter</button>
+        </div>
+      </div>
+    </aside>
+    <main>
+      <div class="gen-panel">
+        <div class="gen-head">
+          <h2>G&eacute;n&eacute;rer une facture fond</h2>
+          <p>S&eacute;lectionnez un g&eacute;rant, ajustez les montants si besoin.</p>
+          <div id="fdSelBadge" class="sel-badge" style="display:none">
+            <span class="tag">S&eacute;lectionn&eacute;</span>
+            <span id="fdSelNom">-</span><span style="opacity:.4">&middot;</span>
+            <span id="fdSelTTC" style="color:var(--accent)">-</span>
+          </div>
+        </div>
+        <div class="gen-body">
+          <div class="row2" style="margin-bottom:.85rem">
+            <div class="field"><label>Mois</label><select id="fdMois">
+              <option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option>
+              <option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option>
+              <option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option>
+              <option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option>
+            </select></div>
+            <div class="field"><label>Ann&eacute;e</label><input id="fdAnnee" type="number" value="2026" min="2020" max="2040"/></div>
+          </div>
+          <div class="fsec-title">&#127968; Loyer fond de commerce</div>
+          <div class="row3" style="margin-bottom:.75rem">
+            <div class="field"><label>HT (&euro;)</label><input id="fdLoyerHT" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+            <div class="field"><label>TVA (&euro;)</label><input id="fdLoyerTVA" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+            <div class="field"><label>TTC (&euro;)</label><input id="fdLoyerTTC" type="number" step="0.01" readonly/></div>
+          </div>
+          <div class="fsec-title">&#9889; Provision charges</div>
+          <div class="row3" style="margin-bottom:.75rem">
+            <div class="field"><label>HT (&euro;)</label><input id="fdChargesHT" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+            <div class="field"><label>TVA (&euro;)</label><input id="fdChargesTVA" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+            <div class="field"><label>TTC (&euro;)</label><input id="fdChargesTTC" type="number" step="0.01" readonly/></div>
+          </div>
+          <hr class="sep"/>
           <div class="row3" style="margin-bottom:.9rem">
             <div class="field"><label>Total HT</label><input id="fdTotalHT" type="number" step="0.01" readonly/></div>
             <div class="field"><label>Total TVA</label><input id="fdTotalTVA" type="number" step="0.01" readonly/></div>
             <div class="field"><label>TOTAL TTC</label><input id="fdTotalTTC" type="number" step="0.01" readonly style="font-weight:700"/></div>
           </div>
-          <button class="btn btn-gold" style="width:100%;font-size:.9rem;padding:.68rem" onclick="genFond()">&#128196; G&eacute;n&eacute;rer le PDF</button>
+          <button class="btn-gen" id="fdGenBtn" onclick="genFond()" disabled style="width:100%;font-size:.9rem;padding:.68rem">&#128196; G&eacute;n&eacute;rer le PDF</button>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;gap:1.2rem">
-        <div class="card"><div class="card-head">&#128065; Aper&ccedil;u</div><div class="card-body"><div id="fdPreview" class="preview-box">Remplissez les montants...</div></div></div>
-        <div class="card"><div class="card-head">&#128203; Derni&egrave;res factures fond</div><div id="fdHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div></div>
+      <div class="card">
+        <div class="card-head">&#128203; Derni&egrave;res factures fond</div>
+        <div id="fdHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div>
       </div>
-    </div>
-  </div>
-
-  <div id="page-bail" class="page">
-    <div class="section-title">Baux de location <span class="pill">Non meublés</span></div>
-    <div class="card">
-      <div class="card-head">&#128209; Nouveau bail</div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem">
-
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128100; Locataire</div>
-            <div class="field"><label>Nom complet du locataire</label><input id="bailNom" placeholder="ex: Saulnier Didier"/></div>
-            <div class="field"><label>Adresse actuelle du locataire</label><input id="bailLocAdresse" placeholder="ex: 12 rue Hugo, 75001 Paris"/></div>
-          </div>
-
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#127968; Le logement</div>
-            <div class="field"><label>Adresse du logement loué</label><input id="bailAdresse" value="83 B avenue Jean Camp, 11100 Narbonne"/></div>
-            <div class="row2">
-              <div class="field"><label>Surface (m²)</label><input id="bailSurface" type="number" value="50" step="0.5"/></div>
-              <div class="field"><label>Nb pièces</label><input id="bailPieces" type="number" value="2" min="1"/></div>
-            </div>
-          </div>
-
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128197; Dates</div>
-            <div class="field"><label>Date de prise d’effet</label><input id="bailDateDebut" type="date"/></div>
-            <div class="field"><label>Durée</label>
-              <select id="bailDuree">
-                <option value="3">3 ans (personne physique)</option>
-                <option value="6">6 ans (personne morale)</option>
-                <option value="1">1 an (durée réduite)</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Loyer</div>
-            <div class="row2">
-              <div class="field"><label>Loyer mensuel (€)</label><input id="bailLoyer" type="number" value="550" step="1"/></div>
-              <div class="field"><label>Charges (€/mois)</label><input id="bailCharges" type="number" value="150" step="1"/></div>
-            </div>
-            <div class="field"><label>Loyer en lettres</label><input id="bailLoyerLettres" placeholder="cinq cent cinquante euros"/></div>
-          </div>
-
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Garantie &amp; Paiement</div>
-            <div class="row2">
-              <div class="field"><label>Dépôt de garantie (€)</label><input id="bailDepot" type="number" value="550" step="1"/></div>
-              <div class="field"><label>Jour de paiement</label><input id="bailJourPaie" type="number" value="5" min="1" max="28"/></div>
-            </div>
-            <div class="field"><label>Dépôt en lettres</label><input id="bailDepotLettres" placeholder="cinq cent cinquante euros"/></div>
-          </div>
-
-          <div style="display:flex;flex-direction:column;justify-content:flex-end">
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128209; Génération</div>
-            <button class="btn-gen" onclick="genBail()" style="width:100%;font-size:.9rem;padding:.75rem">&#128209; Générer le bail PDF</button>
-          </div>
-
-        </div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:1.2rem">
-      <div class="card-head">&#128203; Derniers baux générés</div>
-      <div id="bailHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail généré.</div></div>
-    </div>
-  </div>
-
-  <div id="page-historique" class="page">
-    <div class="section-title">Historique complet <span class="pill">Tous types</span></div>
-    <div class="card"><div class="card-head">&#128203; Tous les documents g&eacute;n&eacute;r&eacute;s</div><div id="allHistTable"><div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div></div></div>
+    </main>
   </div>
 </div>
 
+<!-- ═══ BAUX ═══ -->
+<div id="page-bail" class="page">
+  <div class="section-title">Baux de location <span class="pill">Non meubl&eacute;s</span></div>
+  <div class="card">
+    <div class="card-head">&#128209; Nouveau bail</div>
+    <div class="card-body">
+      <div class="three-col">
+        <div>
+          <div class="fsec-title">&#128100; Locataire</div>
+          <div class="field"><label>Nom complet</label><input id="bailNom" placeholder="ex: Saulnier Didier"/></div>
+          <div class="field"><label>Adresse actuelle</label><input id="bailLocAdresse" placeholder="ex: 12 rue Hugo, Paris"/></div>
+        </div>
+        <div>
+          <div class="fsec-title">&#127968; Le logement</div>
+          <div class="field"><label>Adresse lou&eacute;e</label><input id="bailAdresse" value="83 B avenue Jean Camp, 11100 Narbonne"/></div>
+          <div class="row2">
+            <div class="field"><label>Surface (m&sup2;)</label><input id="bailSurface" type="number" value="50" step="0.5"/></div>
+            <div class="field"><label>Nb pi&egrave;ces</label><input id="bailPieces" type="number" value="2" min="1"/></div>
+          </div>
+        </div>
+        <div>
+          <div class="fsec-title">&#128197; Dates</div>
+          <div class="field"><label>Prise d&#39;effet</label><input id="bailDateDebut" type="date"/></div>
+          <div class="field"><label>Dur&eacute;e</label>
+            <select id="bailDuree">
+              <option value="3">3 ans (personne physique)</option>
+              <option value="6">6 ans (personne morale)</option>
+              <option value="1">1 an (dur&eacute;e r&eacute;duite)</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="fsec-title">&#128176; Loyer</div>
+          <div class="row2">
+            <div class="field"><label>Loyer (&euro;)</label><input id="bailLoyer" type="number" value="550" oninput="bailAutoLettres()"/></div>
+            <div class="field"><label>Charges (&euro;/mois)</label><input id="bailCharges" type="number" value="150"/></div>
+          </div>
+          <div class="field"><label>Loyer en lettres</label><input id="bailLoyerLettres" placeholder="cinq cent cinquante euros"/></div>
+        </div>
+        <div>
+          <div class="fsec-title">&#128176; Garantie &amp; Paiement</div>
+          <div class="row2">
+            <div class="field"><label>D&eacute;p&ocirc;t garantie (&euro;)</label><input id="bailDepot" type="number" value="550" oninput="bailAutoLettres()"/></div>
+            <div class="field"><label>Jour paiement</label><input id="bailJourPaie" type="number" value="5" min="1" max="28"/></div>
+          </div>
+          <div class="field"><label>D&eacute;p&ocirc;t en lettres</label><input id="bailDepotLettres" placeholder="cinq cent cinquante euros"/></div>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:flex-end">
+          <button class="btn-gold" onclick="genBail()">&#128209; G&eacute;n&eacute;rer le bail PDF</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-head">&#128203; Derniers baux</div>
+    <div id="bailHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div></div>
+  </div>
+</div>
+
+<!-- ═══ HISTORIQUE ═══ -->
+<div id="page-historique" class="page">
+  <div class="section-title">Historique complet <span class="pill">Tous types</span></div>
+  <div class="card">
+    <div class="card-head">&#128203; Tous les documents</div>
+    <div id="allHistTable"><div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div></div>
+  </div>
+</div>
+
+<!-- ═══ MODALS ═══ -->
 <div id="qEditModal" class="modal-bg">
   <div class="modal">
-    <div class="modal-head">Modifier le locataire <button class="modal-close" onclick="closeModal('qEditModal')">&#10005;</button></div>
+    <div class="modal-head">Modifier locataire <button class="modal-close" onclick="closeModal('qEditModal')">&#10005;</button></div>
     <div class="modal-body">
       <input type="hidden" id="qEditId"/>
       <div class="field"><label>Civilit&eacute; + Nom</label><input id="qEditNom"/></div>
@@ -1162,14 +387,14 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       <div class="field"><label>Loyer (&euro;)</label><input id="qEditLoyer" type="number"/></div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeModal('qEditModal')">Annuler</button>
-      <button class="btn btn-dark" style="width:auto" onclick="qSaveEdit()">Enregistrer</button>
+      <button class="btn-ghost" onclick="closeModal('qEditModal')">Annuler</button>
+      <button class="btn-add" style="width:auto;padding:.5rem 1.2rem;margin:0" onclick="qSaveEdit()">Enregistrer</button>
     </div>
   </div>
 </div>
 <div id="fEditModal" class="modal-bg">
   <div class="modal">
-    <div class="modal-head">Modifier le locataire pro <button class="modal-close" onclick="closeModal('fEditModal')">&#10005;</button></div>
+    <div class="modal-head">Modifier locataire pro <button class="modal-close" onclick="closeModal('fEditModal')">&#10005;</button></div>
     <div class="modal-body">
       <input type="hidden" id="fEditId"/>
       <div class="field"><label>Nom soci&eacute;t&eacute;</label><input id="fEditNom"/></div>
@@ -1185,12 +410,719 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeModal('fEditModal')">Annuler</button>
-      <button class="btn btn-dark" style="width:auto" onclick="fSaveEdit()">Enregistrer</button>
+      <button class="btn-ghost" onclick="closeModal('fEditModal')">Annuler</button>
+      <button class="btn-add" style="width:auto;padding:.5rem 1.2rem;margin:0" onclick="fSaveEdit()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+<div id="fdEditModal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">Modifier g&eacute;rant <button class="modal-close" onclick="closeModal('fdEditModal')">&#10005;</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="fdEditId"/>
+      <div class="field"><label>Soci&eacute;t&eacute; g&eacute;rante</label><input id="fdEditNom"/></div>
+      <div class="field"><label>Adresse commerce</label><input id="fdEditAdr"/></div>
+      <div class="field"><label>&Eacute;metteur</label><input id="fdEditEmetteur"/></div>
+      <div class="row2">
+        <div class="field"><label>Loyer HT</label><input id="fdEditLoyerHT" type="number" step="0.01"/></div>
+        <div class="field"><label>TVA loyer</label><input id="fdEditLoyerTVA" type="number" step="0.01"/></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Charges HT</label><input id="fdEditChargesHT" type="number" step="0.01"/></div>
+        <div class="field"><label>TVA charges</label><input id="fdEditChargesTVA" type="number" step="0.01"/></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="closeModal('fdEditModal')">Annuler</button>
+      <button class="btn-add" style="width:auto;padding:.5rem 1.2rem;margin:0" onclick="fdSaveEdit()">Enregistrer</button>
     </div>
   </div>
 </div>
 
 <div id="toast" class="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// FIREBASE INIT (compat SDK = portee globale, pas de module)
+// ═══════════════════════════════════════════════════════
+firebase.initializeApp({
+  apiKey: "AIzaSyB6BGTt7qfmSF6M92ijwEnhdvfoXmY-zVk",
+  authDomain: "sci-thomarion.firebaseapp.com",
+  projectId: "sci-thomarion",
+  storageBucket: "sci-thomarion.firebasestorage.app",
+  messagingSenderId: "890402411714",
+  appId: "1:890402411714:web:e112344008dd4d069f975b"
+});
+const db  = firebase.firestore();
+const UID = "thomas_martin_sci"; // identifiant fixe sans auth
+
+// ═══════════════════════════════════════════════════════
+// ETAT
+// ═══════════════════════════════════════════════════════
+var qLocs=[], fLocs=[], fdLocs=[], hist=[];
+var qSel=null, fSel=null, fdSel=null;
+
+// ═══════════════════════════════════════════════════════
+// FIREBASE CRUD
+// ═══════════════════════════════════════════════════════
+function dbSet(col, id, data) {
+  return db.collection('users').doc(UID).collection(col).doc(id).set(data);
+}
+function dbDel(col, id) {
+  return db.collection('users').doc(UID).collection(col).doc(id).delete();
+}
+function dbAddHist(entry) {
+  var id = Date.now().toString();
+  return db.collection('users').doc(UID).collection('hist').doc(id).set(
+    Object.assign({}, entry, {ts: firebase.firestore.FieldValue.serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')})
+  );
+}
+
+// Listeners temps reel
+db.collection('users').doc(UID).collection('qLocs').onSnapshot(function(snap) {
+  qLocs = snap.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+  renderQLocs(); renderQHist();
+});
+db.collection('users').doc(UID).collection('fLocs').onSnapshot(function(snap) {
+  fLocs = snap.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+  renderFLocs(); renderFHist();
+});
+db.collection('users').doc(UID).collection('fdLocs').onSnapshot(function(snap) {
+  fdLocs = snap.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+  renderFdLocs(); renderFdHist();
+});
+db.collection('users').doc(UID).collection('hist').onSnapshot(function(snap) {
+  hist = snap.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+  hist.sort(function(a,b){ return (b.ts&&b.ts.seconds||0)-(a.ts&&a.ts.seconds||0); });
+  renderQHist(); renderFHist(); renderFdHist(); renderBailHist(); renderAllHist();
+});
+
+// ═══════════════════════════════════════════════════════
+// UTILITAIRES
+// ═══════════════════════════════════════════════════════
+var MFRDOC  = ["","janvier","f\u00e9vrier","mars","avril","mai","juin","juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"];
+var MCAPDOC = ["","Janvier","F\u00e9vrier","Mars","Avril","Mai","Juin","Juillet","Ao\u00fbt","Septembre","Octobre","Novembre","D\u00e9cembre"];
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+function dernJ(m,a){ return new Date(a,m,0).getDate(); }
+function init(nom){ return nom.split(' ').filter(Boolean).slice(0,2).map(function(w){return w[0].toUpperCase();}).join(''); }
+function fmtEur(n){ return n.toFixed(2).replace('.',',')+String.fromCharCode(8364); }
+
+function nLettres(n){
+  var u=['','un','deux','trois','quatre','cinq','six','sept','huit','neuf','dix','onze','douze','treize','quatorze','quinze','seize','dix-sept','dix-huit','dix-neuf'];
+  var d=['','dix','vingt','trente','quarante','cinquante','soixante','soixante','quatre-vingt','quatre-vingt'];
+  if(n===0)return'z\u00e9ro';
+  var r='';
+  if(n>=1000){var m=Math.floor(n/1000);r+=(m===1?'mille':nLettres(m)+' mille');n%=1000;if(n>0)r+=' ';}
+  if(n>=100){var c=Math.floor(n/100);r+=(c===1?'cent':u[c]+' cent');n%=100;if(n>0)r+=' ';else if(c>1)r+='s';}
+  if(n>=80){var dd=Math.floor(n/10),uu=n%10;if(dd===9)r+='quatre-vingt-'+u[uu+10];else if(dd===8)r+=uu===0?'quatre-vingts':'quatre-vingt-'+u[uu];else{var dz=d[dd];if(uu===0)r+=dz;else if(uu===1&&dd===7)r+='soixante et onze';else if(dd===7)r+='soixante-'+u[uu+10];else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}}
+  else if(n>=20){var dd2=Math.floor(n/10),uu2=n%10,dz2=d[dd2];if(uu2===0)r+=dz2;else if(uu2===1)r+=dz2+' et un';else r+=dz2+'-'+u[uu2];}
+  else if(n>0)r+=u[n];
+  return r;
+}
+function loyerLettres(m){
+  var e=Math.floor(m),c=Math.round((m-e)*100);
+  var s=nLettres(e)+' euro'+(e>1?'s':'');
+  if(c>0)s+=' et '+nLettres(c)+' centime'+(c>1?'s':'');
+  return s;
+}
+
+function toast(msg,t){
+  var el=document.getElementById('toast');
+  el.textContent=msg; el.className='toast '+(t||'ok');
+  void el.offsetWidth; el.classList.add('show');
+  clearTimeout(window._tT);
+  window._tT=setTimeout(function(){el.classList.remove('show');},3200);
+}
+function showPage(id,btn){
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('page-'+id).classList.add('active');
+  btn.classList.add('active');
+}
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+// ═══════════════════════════════════════════════════════
+// TELECHARGEMENT PDF
+// ═══════════════════════════════════════════════════════
+function dlPDF(pdf, filename) {
+  var blob = pdf.output('blob');
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 2000);
+}
+
+// ═══════════════════════════════════════════════════════
+// QUITTANCES
+// ═══════════════════════════════════════════════════════
+function qAjouter(){
+  var nom=document.getElementById('qNewNom').value.trim();
+  var adr=document.getElementById('qNewAdresse').value.trim();
+  var loyer=document.getElementById('qNewLoyer').value.trim();
+  if(!nom||!adr||!loyer){toast('Remplissez tous les champs.','err');return;}
+  var id=Date.now().toString();
+  dbSet('qLocs',id,{nom:nom,adresse:adr,loyer:parseFloat(loyer)}).then(function(){
+    document.getElementById('qNewNom').value='';
+    document.getElementById('qNewAdresse').value='';
+    document.getElementById('qNewLoyer').value='';
+    toast(nom+' ajout\u00e9(e) !','ok');
+    qSel=id; updateQBadge();
+  }).catch(function(e){toast('Erreur Firebase : '+e.message,'err');});
+}
+function qSelLoc(id){ qSel=id; renderQLocs(); updateQBadge(); }
+function updateQBadge(){
+  var l=qLocs.find(function(x){return x.id===qSel;});
+  document.getElementById('qGenBtn').disabled=!l;
+  var b=document.getElementById('qSelBadge');
+  if(l){b.style.display='flex';document.getElementById('qSelNom').textContent=l.nom;document.getElementById('qSelLoyer').textContent=parseFloat(l.loyer).toLocaleString('fr-FR')+' \u20ac/mois';}
+  else b.style.display='none';
+}
+function qEditOpen(id,e){
+  e.stopPropagation();
+  var l=qLocs.find(function(x){return x.id===id;});if(!l)return;
+  document.getElementById('qEditId').value=id;
+  document.getElementById('qEditNom').value=l.nom;
+  document.getElementById('qEditAdresse').value=l.adresse;
+  document.getElementById('qEditLoyer').value=l.loyer;
+  document.getElementById('qEditModal').classList.add('open');
+}
+function qSaveEdit(){
+  var id=document.getElementById('qEditId').value;
+  var nom=document.getElementById('qEditNom').value.trim();
+  var adr=document.getElementById('qEditAdresse').value.trim();
+  var loyer=document.getElementById('qEditLoyer').value.trim();
+  if(!nom||!adr||!loyer){toast('Champs manquants','err');return;}
+  dbSet('qLocs',id,{nom:nom,adresse:adr,loyer:parseFloat(loyer)}).then(function(){
+    closeModal('qEditModal');
+    if(qSel===id)updateQBadge();
+    toast('Modifi\u00e9.','ok');
+  });
+}
+function qDelLoc(id,e){
+  e.stopPropagation();
+  var l=qLocs.find(function(x){return x.id===id;});
+  if(!confirm('Supprimer '+l.nom+' ?'))return;
+  dbDel('qLocs',id).then(function(){
+    if(qSel===id){qSel=null;updateQBadge();}
+    toast('Supprim\u00e9.','ok');
+  });
+}
+function renderQLocs(){
+  var c=document.getElementById('qLocList');
+  if(!qLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#127969;</div>Aucun locataire.</div>';return;}
+  c.innerHTML=qLocs.map(function(l){return '<div class="loc-item'+(l.id===qSel?' sel':'')+'" onclick="qSelLoc(\'' +l.id+ '\')">'
+    +'<div class="loc-av">'+init(l.nom)+'</div>'
+    +'<div class="loc-info"><div class="loc-nom">'+l.nom+'</div><div class="loc-sub">'+parseFloat(l.loyer).toLocaleString('fr-FR')+' \u20ac/mois</div></div>'
+    +'<div class="loc-actions"><button class="btn-edit-sm" onclick="qEditOpen(\'' +l.id+ '\',event)">\u270e</button>'
+    +'<button class="btn-danger-sm" onclick="qDelLoc(\'' +l.id+ '\',event)">\u{1f5d1}</button></div>'
+    +'</div>';}).join('');
+}
+function renderQHist(){
+  var h=hist.filter(function(x){return x.type==='Quittance';}).slice(0,10);
+  var c=document.getElementById('qHistTable');
+  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div>';return;}
+  c.innerHTML='<table class="hist-table"><thead><tr><th>Locataire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>'
+    +h.map(function(x){return '<tr><td><strong>'+x.qui+'</strong></td><td><span class="badge badge-blue">'+x.periode+'</span></td><td>'+x.montant+'</td><td style="color:var(--muted)">'+x.date+'</td></tr>';}).join('')
+    +'</tbody></table>';
+}
+function genQuittance(){
+  if(!qSel)return;
+  var loc=qLocs.find(function(l){return l.id===qSel;});if(!loc)return;
+  var mois=+document.getElementById('qMois').value;
+  var annee=+document.getElementById('qAnnee').value;
+  var jp=+document.getElementById('qJourPaie').value;
+  var mNom=MFRDOC[mois],mStr=pad2(mois),aStr=String(annee);
+  var dj=dernJ(mois,annee),jf=pad2(Math.min(jp+8,dj)),jps=pad2(jp);
+  var loyer=parseFloat(loc.loyer);
+  var ltx=loyerLettres(loyer);
+
+  // Generer PDF
+  var P=window.jspdf,pdf=new P.jsPDF({unit:'mm',format:'a4'});
+  var W=210,ml=25,mr=25,cw=W-ml-mr;
+  var y=20,BLUE=[18,166,208],DARK=[22,33,62],GREY=[90,90,90];
+
+  function line(txt,bold,sz,col,center){
+    pdf.setFont('helvetica',bold?'bold':'normal');
+    pdf.setFontSize(sz||10);
+    pdf.setTextColor.apply(pdf,col||GREY);
+    var lines=pdf.splitTextToSize(txt,cw);
+    pdf.text(lines,center?W/2:ml,y,center?{align:'center'}:{});
+    y+=lines.length*(sz||10)*0.45+2;
+  }
+  function hline(col){pdf.setDrawColor.apply(pdf,col||[200,200,200]);pdf.setLineWidth(0.3);pdf.line(ml,y,W-mr,y);y+=5;}
+
+  line('QUITTANCE DE LOYER',true,18,BLUE,true);
+  line('Quittance du mois de '+mNom+' '+annee,true,13,BLUE,true);
+  hline(BLUE); y+=2;
+  line('Adresse de location :',true,10.5,DARK); y-=2;
+  line('    '+loc.adresse,false,10.5,GREY);
+  y+=3;
+  var corps='Je soussign\u00e9 MARTIN Thomas, propri\u00e9taire du logement d\u00e9sign\u00e9 ci-dessus, '
+    +'d\u00e9clare avoir re\u00e7u de '+loc.nom+' la somme de '+ltx+' (en toutes lettres), '
+    +Math.round(loyer)+' euros (en chiffres), au titre du paiement du loyer pour la p\u00e9riode '
+    +'du 01/'+mStr+'/'+annee+' au '+dj+'/'+mStr+'/'+annee+' et lui en donne quittance.';
+  line(corps,false,10.5,GREY);
+  y+=5; hline();
+  line('D\u00e9tail du r\u00e8glement :',true,10.5,DARK);
+  ['Loyer : '+Math.round(loyer)+' euros','Charges : 0 euros','Total : '+Math.round(loyer)+' euros',
+   'Date de paiement : le '+jps+'/'+mStr+'/'+annee,
+   'Fait \u00e0 Narbonne, le '+jf+'/'+mStr+'/'+annee
+  ].forEach(function(l){line('    '+l,false,10,GREY);});
+  y+=5; hline();
+  var mention="Cette quittance annule tous les re\u00e7us qui auraient pu \u00eatre \u00e9tablis pr\u00e9c\u00e9demment. "
+    +"Elle est \u00e0 conserver pendant trois ans par le locataire (art. 7-1 loi n\u00b089-462 du 6 juillet 1989).";
+  line(mention,false,8.5,[150,150,150]);
+  pdf.setDrawColor.apply(pdf,BLUE);pdf.setLineWidth(0.4);pdf.line(ml,280,W-mr,280);
+  pdf.setFont('helvetica','normal');pdf.setFontSize(8);pdf.setTextColor.apply(pdf,BLUE);
+  pdf.text('SCI Thomarion  \u2022  83 avenue Jean Camps, 11100 Narbonne  \u2022  06 63 09 74 82  \u2022  Siret : 918 029 810 00010',W/2,285,{align:'center'});
+
+  var fn='quittance_'+loc.nom.replace(/\s+/g,'_')+'_'+mNom+'_'+annee+'.pdf';
+  dlPDF(pdf,fn);
+  dbAddHist({type:'Quittance',qui:loc.nom,periode:MCAPDOC[mois]+' '+annee,montant:loyer+' \u20ac',fichier:fn});
+  toast('Quittance t\u00e9l\u00e9charg\u00e9e !','ok');
+}
+
+// ═══════════════════════════════════════════════════════
+// FACTURES LOYER
+// ═══════════════════════════════════════════════════════
+function fAjouter(){
+  var nom=document.getElementById('fNewNom').value.trim();
+  var a1=document.getElementById('fNewAdr1').value.trim();
+  var a2=document.getElementById('fNewAdr2').value.trim();
+  var local=+document.getElementById('fNewLocal').value;
+  var ladr=document.getElementById('fNewLocalAdr').value.trim();
+  var ht=+document.getElementById('fNewHT').value;
+  var tva=+document.getElementById('fNewTVA').value;
+  if(!nom||!a1||!a2||!local||!ht){toast('Champs obligatoires manquants.','err');return;}
+  var id=Date.now().toString();
+  dbSet('fLocs',id,{nom:nom,adr1:a1,adr2:a2,local:local,localAdr:ladr,ht:ht,tva:tva||20}).then(function(){
+    ['fNewNom','fNewAdr1','fNewAdr2','fNewLocal','fNewLocalAdr','fNewHT'].forEach(function(i){document.getElementById(i).value='';});
+    document.getElementById('fNewTVA').value='20';
+    toast(nom+' ajout\u00e9 !','ok'); fSel=id; updateFBadge();
+  }).catch(function(e){toast('Erreur : '+e.message,'err');});
+}
+function fSelLoc(id){ fSel=id; renderFLocs(); updateFBadge(); }
+function updateFBadge(){
+  var l=fLocs.find(function(x){return x.id===fSel;});
+  document.getElementById('fGenBtn').disabled=!l;
+  var b=document.getElementById('fSelBadge');
+  if(l){b.style.display='flex';document.getElementById('fSelNom').textContent=l.nom;document.getElementById('fSelHT').textContent=parseFloat(l.ht).toLocaleString('fr-FR')+' \u20ac HT';}
+  else b.style.display='none';
+}
+function fEditOpen(id,e){
+  e.stopPropagation();
+  var l=fLocs.find(function(x){return x.id===id;});if(!l)return;
+  document.getElementById('fEditId').value=id;
+  document.getElementById('fEditNom').value=l.nom;
+  document.getElementById('fEditAdr1').value=l.adr1;
+  document.getElementById('fEditAdr2').value=l.adr2;
+  document.getElementById('fEditLocal').value=l.local;
+  document.getElementById('fEditLocalAdr').value=l.localAdr||'';
+  document.getElementById('fEditHT').value=l.ht;
+  document.getElementById('fEditTVA').value=l.tva;
+  document.getElementById('fEditModal').classList.add('open');
+}
+function fSaveEdit(){
+  var id=document.getElementById('fEditId').value;
+  var nom=document.getElementById('fEditNom').value.trim();
+  var a1=document.getElementById('fEditAdr1').value.trim();
+  var a2=document.getElementById('fEditAdr2').value.trim();
+  var local=+document.getElementById('fEditLocal').value;
+  var ladr=document.getElementById('fEditLocalAdr').value.trim();
+  var ht=+document.getElementById('fEditHT').value;
+  var tva=+document.getElementById('fEditTVA').value;
+  if(!nom||!a1||!a2){toast('Champs manquants','err');return;}
+  dbSet('fLocs',id,{nom:nom,adr1:a1,adr2:a2,local:local,localAdr:ladr,ht:ht,tva:tva}).then(function(){
+    closeModal('fEditModal');
+    if(fSel===id)updateFBadge();
+    toast('Modifi\u00e9.','ok');
+  });
+}
+function fDelLoc(id,e){
+  e.stopPropagation();
+  var l=fLocs.find(function(x){return x.id===id;});
+  if(!confirm('Supprimer '+l.nom+' ?'))return;
+  dbDel('fLocs',id).then(function(){
+    if(fSel===id){fSel=null;updateFBadge();}
+    toast('Supprim\u00e9.','ok');
+  });
+}
+function renderFLocs(){
+  var c=document.getElementById('fLocList');
+  if(!fLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#127970;</div>Aucun locataire pro.</div>';return;}
+  c.innerHTML=fLocs.map(function(l){return '<div class="tenant-item'+(l.id===fSel?' sel':'')+'" onclick="fSelLoc(\'' +l.id+ '\')">'
+    +'<div class="tenant-av">'+init(l.nom)+'</div>'
+    +'<div class="loc-info"><div class="tenant-nom">'+l.nom+'</div><div class="tenant-sub">Local '+l.local+' \u00b7 '+parseFloat(l.ht).toLocaleString('fr-FR')+' \u20ac HT</div></div>'
+    +'<div class="loc-actions"><button class="btn-edit-sm" onclick="fEditOpen(\'' +l.id+ '\',event)">\u270e</button>'
+    +'<button class="btn-danger-sm" onclick="fDelLoc(\'' +l.id+ '\',event)">\u{1f5d1}</button></div>'
+    +'</div>';}).join('');
+}
+function renderFHist(){
+  var h=hist.filter(function(x){return x.type==='Facture loyer';}).slice(0,10);
+  var c=document.getElementById('fHistTable');
+  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
+  c.innerHTML='<table class="hist-table"><thead><tr><th>Soci\u00e9t\u00e9</th><th>P\u00e9riode</th><th>TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>'
+    +h.map(function(x){return '<tr><td><strong>'+x.qui+'</strong></td><td><span class="badge badge-gold">'+x.periode+'</span></td><td>'+x.montant+'</td><td style="color:var(--muted)">'+x.date+'</td></tr>';}).join('')
+    +'</tbody></table>';
+}
+function genLoyer(){
+  if(!fSel)return;
+  var loc=fLocs.find(function(l){return l.id===fSel;});if(!loc)return;
+  var mois=+document.getElementById('fMois').value;
+  var annee=+document.getElementById('fAnnee').value;
+  var jour=+document.getElementById('fJour').value;
+  var mNom=MCAPDOC[mois],mStr=pad2(mois),aStr=String(annee);
+  var ht=loc.ht,tvaV=Math.round(ht*(loc.tva/100)*100)/100,ttc=Math.round((ht+tvaV)*100)/100;
+
+  var P=window.jspdf,pdf=new P.jsPDF({unit:'mm',format:'a4'});
+  var W=210,ml=25,mr=25,cw=W-ml-mr;
+  var y=22,DARK=[22,33,62],GREY=[90,90,90];
+
+  function t(txt,bold,sz,col,right){
+    pdf.setFont('helvetica',bold?'bold':'normal');pdf.setFontSize(sz||10);pdf.setTextColor.apply(pdf,col||GREY);
+    var lines=pdf.splitTextToSize(txt,cw);
+    pdf.text(lines,right?W-mr:ml,y,right?{align:'right'}:{});
+    y+=lines.length*(sz||10)*0.45+2;
+  }
+  function hr(){pdf.setDrawColor(200,200,200);pdf.setLineWidth(0.3);pdf.line(ml,y,W-mr,y);y+=5;}
+
+  t('SCI THOMARION',true,16,DARK);
+  t('NARBONNE, le '+jour+' '+mNom+' '+annee,false,11,GREY);y+=4;
+  t(loc.nom,true,11,DARK);
+  t(loc.adr1,false,10.5,GREY);t(loc.adr2,false,10.5,GREY);y+=5;
+  t('REF/ Loyer '+mNom+' '+annee,true,10.5,GREY);
+  t('Local '+loc.local+(loc.localAdr?' - '+loc.localAdr:''),false,10,GREY);y+=3;
+  t('Facture '+annee+'-'+mStr+'-L'+loc.local,true,11,DARK);y+=3;
+  t('Loyer Mois '+mNom+' '+annee,true,11,DARK);y+=3;
+
+  // Tableau montants
+  var rows=[['HT',fmtEur(ht)],['T.V.A '+loc.tva+'.00%',fmtEur(tvaV)],['TOTAL Loyer TTC',fmtEur(ttc)]];
+  rows.forEach(function(r,i){
+    if(i===2){pdf.setFillColor(240,240,245);pdf.rect(ml,y-4.5,cw,7,'F');}
+    pdf.setFont('helvetica',i===2?'bold':'normal');pdf.setFontSize(10.5);pdf.setTextColor.apply(pdf,GREY);
+    pdf.text(r[0],W-mr-40,y,{align:'right'});pdf.text(r[1],W-mr,y,{align:'right'});
+    pdf.setDrawColor(210,210,210);pdf.setLineWidth(0.25);pdf.line(ml,y+2.5,W-mr,y+2.5);
+    y+=8;
+  });
+  y+=4;
+  t('Valeur en votre aimable r\u00e8glement de '+loyerLettres(ttc)+'.',false,10.5,GREY);
+  t('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance.',false,10,GREY);
+  t('Cordiales salutations.',false,10,GREY);y+=8;
+  t('SCI Thomarion,',true,10.5,DARK);
+  t('83 avenue Jean Camps, 11100 Narbonne',false,10,GREY);
+  t('06 63 09 74 82  -  N\u00b0 siret : 918 029 810 00010',false,10,GREY);
+
+  var fn='facture_loyer_'+loc.nom.replace(/\s+/g,'_')+'_'+mNom+'_'+annee+'.pdf';
+  dlPDF(pdf,fn);
+  dbAddHist({type:'Facture loyer',qui:loc.nom,periode:mNom+' '+annee,montant:ttc+' \u20ac TTC',fichier:fn});
+  toast('Facture t\u00e9l\u00e9charg\u00e9e !','ok');
+}
+
+// ═══════════════════════════════════════════════════════
+// FOND DE COMMERCE
+// ═══════════════════════════════════════════════════════
+function fdAjouter(){
+  var nom=document.getElementById('fdNewNom').value.trim();
+  var adr=document.getElementById('fdNewAdr').value.trim();
+  var em=document.getElementById('fdNewEmetteur').value.trim();
+  var lHT=+document.getElementById('fdNewLoyerHT').value;
+  var lTV=+document.getElementById('fdNewLoyerTVA').value;
+  var cHT=+document.getElementById('fdNewChargesHT').value;
+  var cTV=+document.getElementById('fdNewChargesTVA').value;
+  if(!nom||!adr){toast('Nom et adresse obligatoires.','err');return;}
+  var id=Date.now().toString();
+  dbSet('fdLocs',id,{nom:nom,adr:adr,emetteur:em,loyerHT:lHT,loyerTVA:lTV,chargesHT:cHT,chargesTVA:cTV}).then(function(){
+    ['fdNewNom','fdNewAdr','fdNewEmetteur','fdNewLoyerHT','fdNewLoyerTVA','fdNewChargesHT','fdNewChargesTVA'].forEach(function(i){document.getElementById(i).value='';});
+    toast(nom+' ajout\u00e9 !','ok'); fdSel=id; updateFdBadge();
+  }).catch(function(e){toast('Erreur : '+e.message,'err');});
+}
+function fdSelLoc(id){ fdSel=id; renderFdLocs(); updateFdBadge(); }
+function updateFdBadge(){
+  var l=fdLocs.find(function(x){return x.id===fdSel;});
+  document.getElementById('fdGenBtn').disabled=!l;
+  var b=document.getElementById('fdSelBadge');
+  if(l){
+    b.style.display='flex';
+    document.getElementById('fdSelNom').textContent=l.nom;
+    var ttc=(l.loyerHT+l.loyerTVA+l.chargesHT+l.chargesTVA);
+    document.getElementById('fdSelTTC').textContent=ttc.toFixed(2)+' \u20ac TTC';
+    // Pre-fill montants
+    document.getElementById('fdLoyerHT').value=l.loyerHT||0;
+    document.getElementById('fdLoyerTVA').value=l.loyerTVA||0;
+    document.getElementById('fdChargesHT').value=l.chargesHT||0;
+    document.getElementById('fdChargesTVA').value=l.chargesTVA||0;
+    fdCalc();
+  } else b.style.display='none';
+}
+function fdEditOpen(id,e){
+  e.stopPropagation();
+  var l=fdLocs.find(function(x){return x.id===id;});if(!l)return;
+  document.getElementById('fdEditId').value=id;
+  document.getElementById('fdEditNom').value=l.nom;
+  document.getElementById('fdEditAdr').value=l.adr;
+  document.getElementById('fdEditEmetteur').value=l.emetteur||'';
+  document.getElementById('fdEditLoyerHT').value=l.loyerHT||0;
+  document.getElementById('fdEditLoyerTVA').value=l.loyerTVA||0;
+  document.getElementById('fdEditChargesHT').value=l.chargesHT||0;
+  document.getElementById('fdEditChargesTVA').value=l.chargesTVA||0;
+  document.getElementById('fdEditModal').classList.add('open');
+}
+function fdSaveEdit(){
+  var id=document.getElementById('fdEditId').value;
+  var nom=document.getElementById('fdEditNom').value.trim();
+  var adr=document.getElementById('fdEditAdr').value.trim();
+  if(!nom||!adr){toast('Champs manquants','err');return;}
+  dbSet('fdLocs',id,{
+    nom:nom,adr:adr,emetteur:document.getElementById('fdEditEmetteur').value.trim(),
+    loyerHT:+document.getElementById('fdEditLoyerHT').value,
+    loyerTVA:+document.getElementById('fdEditLoyerTVA').value,
+    chargesHT:+document.getElementById('fdEditChargesHT').value,
+    chargesTVA:+document.getElementById('fdEditChargesTVA').value
+  }).then(function(){closeModal('fdEditModal');if(fdSel===id)updateFdBadge();toast('Modifi\u00e9.','ok');});
+}
+function fdDelLoc(id,e){
+  e.stopPropagation();
+  var l=fdLocs.find(function(x){return x.id===id;});
+  if(!confirm('Supprimer '+l.nom+' ?'))return;
+  dbDel('fdLocs',id).then(function(){if(fdSel===id){fdSel=null;updateFdBadge();}toast('Supprim\u00e9.','ok');});
+}
+function renderFdLocs(){
+  var c=document.getElementById('fdLocList');
+  if(!fdLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#129309;</div>Aucun g\u00e9rant.</div>';return;}
+  c.innerHTML=fdLocs.map(function(l){return '<div class="tenant-item'+(l.id===fdSel?' sel':'')+'" onclick="fdSelLoc(\'' +l.id+ '\')">'
+    +'<div class="tenant-av">'+init(l.nom)+'</div>'
+    +'<div class="loc-info"><div class="tenant-nom">'+l.nom+'</div><div class="tenant-sub">'+(l.emetteur||'')+' \u00b7 '+((l.loyerHT+l.loyerTVA+l.chargesHT+l.chargesTVA)||0).toFixed(2)+' \u20ac TTC</div></div>'
+    +'<div class="loc-actions"><button class="btn-edit-sm" onclick="fdEditOpen(\'' +l.id+ '\',event)">\u270e</button>'
+    +'<button class="btn-danger-sm" onclick="fdDelLoc(\'' +l.id+ '\',event)">\u{1f5d1}</button></div>'
+    +'</div>';}).join('');
+}
+function fdCalc(){
+  var lHT=+document.getElementById('fdLoyerHT').value||0;
+  var lTV=+document.getElementById('fdLoyerTVA').value||0;
+  var cHT=+document.getElementById('fdChargesHT').value||0;
+  var cTV=+document.getElementById('fdChargesTVA').value||0;
+  var lTC=lHT+lTV,cTC=cHT+cTV,tHT=lHT+cHT,tTV=lTV+cTV,tTC=lTC+cTC;
+  document.getElementById('fdLoyerTTC').value=lTC.toFixed(2);
+  document.getElementById('fdChargesTTC').value=cTC.toFixed(2);
+  document.getElementById('fdTotalHT').value=tHT.toFixed(2);
+  document.getElementById('fdTotalTVA').value=tTV.toFixed(2);
+  document.getElementById('fdTotalTTC').value=tTC.toFixed(2);
+}
+function renderFdHist(){
+  var h=hist.filter(function(x){return x.type==='Fond de commerce';}).slice(0,8);
+  var c=document.getElementById('fdHistTable');
+  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
+  c.innerHTML='<table class="hist-table"><thead><tr><th>G\u00e9rant</th><th>P\u00e9riode</th><th>Total TTC</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>'
+    +h.map(function(x){return '<tr><td><strong>'+x.qui+'</strong></td><td><span class="badge badge-gold">'+x.periode+'</span></td><td>'+x.montant+'</td><td style="color:var(--muted)">'+x.date+'</td></tr>';}).join('')
+    +'</tbody></table>';
+}
+function genFond(){
+  if(!fdSel)return;
+  var loc=fdLocs.find(function(l){return l.id===fdSel;});if(!loc)return;
+  var mois=+document.getElementById('fdMois').value;
+  var annee=+document.getElementById('fdAnnee').value;
+  var lHT=+document.getElementById('fdLoyerHT').value;
+  var lTV=+document.getElementById('fdLoyerTVA').value;
+  var cHT=+document.getElementById('fdChargesHT').value;
+  var cTV=+document.getElementById('fdChargesTVA').value;
+  var lTC=lHT+lTV,cTC=cHT+cTV,tHT=lHT+cHT,tTV=lTV+cTV,tTC=lTC+cTC;
+  var mNom=MCAPDOC[mois],mStr=pad2(mois),aStr=String(annee);
+  var emetteur=loc.emetteur||'SASU Ceva Pizza';
+
+  var P=window.jspdf,pdf=new P.jsPDF({unit:'mm',format:'a4'});
+  var W=210,ml=25,mr=25,cw=W-ml-mr;
+  var y=22,DARK=[22,33,62],GREY=[90,90,90];
+
+  function t(txt,bold,sz,col){
+    pdf.setFont('helvetica',bold?'bold':'normal');pdf.setFontSize(sz||10);pdf.setTextColor.apply(pdf,col||GREY);
+    var lines=pdf.splitTextToSize(txt,cw);pdf.text(lines,ml,y);
+    y+=lines.length*(sz||10)*0.45+2;
+  }
+
+  t(emetteur.toUpperCase(),true,16,DARK);
+  t('NARBONNE, le 1er '+mNom+' '+annee,false,11,GREY);y+=4;
+  t(loc.nom,true,11,DARK);t(loc.adr,false,10.5,GREY);y+=5;
+  t('REF/ '+mNom+' '+annee,true,10.5,GREY);t('Fond de commerce',false,10,GREY);
+  t(loc.adr,false,10,GREY);y+=3;
+  t('Facture '+annee+'-'+mStr+'-F1',true,11,DARK);y+=4;
+
+  // Tableau
+  var tableRows=[
+    {label:'Loyer Mois '+mNom+' '+annee,val:'',head:true},
+    {label:'HT',val:fmtEur(lHT)},{label:'T.V.A 20.00%',val:fmtEur(lTV)},
+    {label:'TOTAL Loyer TTC',val:fmtEur(lTC),tot:true},
+    {label:'Provision charges HT',val:fmtEur(cHT)},{label:'TVA 20,00%',val:fmtEur(cTV)},
+    {label:'TOTAL charge TTC',val:fmtEur(cTC),tot:true},
+    {label:'Total HT',val:fmtEur(tHT)},{label:'Total TVA 20,00%',val:fmtEur(tTV)},
+    {label:'Total \u00e0 r\u00e9gler TTC',val:fmtEur(tTC),tot:true}
+  ];
+  tableRows.forEach(function(r){
+    if(r.head){pdf.setFillColor(22,33,62);pdf.rect(ml,y-5,cw,7,'F');pdf.setFont('helvetica','bold');pdf.setFontSize(10.5);pdf.setTextColor(255,255,255);pdf.text(r.label,ml+3,y-0.5);}
+    else if(r.tot){pdf.setFillColor(230,235,245);pdf.rect(ml,y-5,cw,7,'F');pdf.setFont('helvetica','bold');pdf.setFontSize(10.5);pdf.setTextColor(30,30,30);pdf.text(r.label,ml+3,y-0.5);pdf.text(r.val,W-mr-3,y-0.5,{align:'right'});}
+    else{pdf.setFont('helvetica','normal');pdf.setFontSize(10.5);pdf.setTextColor(60,60,60);pdf.text(r.label,ml+3,y-0.5);pdf.text(r.val,W-mr-3,y-0.5,{align:'right'});}
+    pdf.setDrawColor(200,200,200);pdf.setLineWidth(0.25);pdf.line(ml,y+2,W-mr,y+2);
+    y+=7.5;
+  });
+  y+=5;
+  t('Valeur en votre aimable r\u00e8glement de '+loyerLettres(tTC)+'.',false,10.5,GREY);
+  t('Nous vous remercions. Cordiales salutations.',false,10,GREY);
+
+  var fn='facture_fond_'+loc.nom.replace(/\s+/g,'_')+'_'+mNom+'_'+annee+'.pdf';
+  dlPDF(pdf,fn);
+  dbAddHist({type:'Fond de commerce',qui:loc.nom,periode:mNom+' '+annee,montant:tTC.toFixed(2)+' \u20ac TTC',fichier:fn});
+  toast('Facture fond t\u00e9l\u00e9charg\u00e9e !','ok');
+}
+
+// ═══════════════════════════════════════════════════════
+// BAUX
+// ═══════════════════════════════════════════════════════
+function bailAutoLettres(){
+  var l=+document.getElementById('bailLoyer').value;
+  var d=+document.getElementById('bailDepot').value;
+  if(l)document.getElementById('bailLoyerLettres').value=loyerLettres(l);
+  if(d)document.getElementById('bailDepotLettres').value=loyerLettres(d);
+}
+function renderBailHist(){
+  var h=hist.filter(function(x){return x.type==='Bail';}).slice(0,10);
+  var c=document.getElementById('bailHistTable');
+  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div>';return;}
+  c.innerHTML='<table class="hist-table"><thead><tr><th>Locataire</th><th>Adresse</th><th>Loyer</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>'
+    +h.map(function(x){return '<tr><td><strong>'+x.qui+'</strong></td><td>'+x.periode+'</td><td>'+x.montant+'</td><td style="color:var(--muted)">'+x.date+'</td></tr>';}).join('')
+    +'</tbody></table>';
+}
+function genBail(){
+  var nom=document.getElementById('bailNom').value.trim();
+  var locAdr=document.getElementById('bailLocAdresse').value.trim();
+  var adresse=document.getElementById('bailAdresse').value.trim();
+  var surface=document.getElementById('bailSurface').value;
+  var pieces=document.getElementById('bailPieces').value;
+  var dateDebut=document.getElementById('bailDateDebut').value;
+  var duree=+document.getElementById('bailDuree').value;
+  var loyer=+document.getElementById('bailLoyer').value;
+  var loyerL=document.getElementById('bailLoyerLettres').value.trim()||loyerLettres(loyer);
+  var charges=+document.getElementById('bailCharges').value;
+  var jourPaie=document.getElementById('bailJourPaie').value;
+  var depot=+document.getElementById('bailDepot').value;
+  var depotL=document.getElementById('bailDepotLettres').value.trim()||loyerLettres(depot);
+  if(!nom||!adresse||!dateDebut||!loyer){toast('Remplissez les champs obligatoires.','err');return;}
+  var dD=new Date(dateDebut),dF=new Date(dateDebut);
+  dF.setFullYear(dF.getFullYear()+duree);
+  function fd(d){return pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+'/'+d.getFullYear();}
+  var dateD=fd(dD),dateF=fd(dF),today=fd(new Date());
+
+  var P=window.jspdf,pdf=new P.jsPDF({unit:'mm',format:'a4'});
+  var W=210,ml=20,mr=20,cw=W-ml-mr;
+  var y=18,DARK=[22,33,62],GREY=[90,90,90];
+
+  function t(txt,bold,sz,col,center){
+    pdf.setFont('helvetica',bold?'bold':'normal');pdf.setFontSize(sz||10);pdf.setTextColor.apply(pdf,col||GREY);
+    var lines=pdf.splitTextToSize(txt,cw);
+    pdf.text(lines,center?W/2:ml,y,center?{align:'center'}:{});
+    y+=lines.length*(sz||10)*0.43+2;
+  }
+  function info(lbl,val){
+    pdf.setFont('helvetica','bold');pdf.setFontSize(9.5);pdf.setTextColor.apply(pdf,GREY);pdf.text(lbl,ml+4,y);
+    pdf.setFont('helvetica','normal');
+    var lines=pdf.splitTextToSize(val,cw-52);pdf.text(lines,ml+52,y);
+    y+=Math.max(lines.length,1)*4.8;
+  }
+  function hr(){pdf.setDrawColor(200,200,200);pdf.setLineWidth(0.3);pdf.line(ml,y,W-mr,y);y+=5;}
+  function sec(txt){y+=2;pdf.setFont('helvetica','bold');pdf.setFontSize(10.5);pdf.setTextColor.apply(pdf,DARK);pdf.text(txt,ml,y);y+=6;}
+  function chk(){if(y>272){pdf.addPage();y=18;}}
+
+  t('CONTRAT DE LOCATION',true,16,DARK,true);
+  t('POUR LOGEMENT NON MEUBLE',true,13,DARK,true);
+  pdf.setDrawColor.apply(pdf,DARK);pdf.setLineWidth(0.5);pdf.line(ml,y,W-mr,y);y+=8;
+
+  sec('I. DESIGNATION DES PARTIES');
+  info('Bailleur :','SCI THOMARION - MARTIN Thomas');
+  info('Adresse :','83 avenue Jean Camps, 11100 Narbonne');
+  info('Contact :','tmjumeaux@orange.fr - 06 63 09 74 82 - Siret : 918 029 810 00010');
+  y+=3;
+  info('Locataire :',nom);
+  if(locAdr)info('Adresse actuelle :',locAdr);
+  hr(); chk();
+
+  sec('II. OBJET DU CONTRAT');
+  info('Adresse du logement :',adresse);
+  info('Surface habitable :',surface+' m\u00b2');
+  info('Nombre de pi\u00e8ces :',pieces);
+  info('Type :','Usage d'habitation - Mono-propri\u00e9t\u00e9');
+  hr(); chk();
+
+  sec('III. DUREE ET DATES');
+  info('Date de d\u00e9but :',dateD);
+  info('Date de fin :',dateF);
+  info('Dur\u00e9e :',duree+' ans'+(duree===3?' (personne physique)':duree===6?' (personne morale)':' (dur\u00e9e r\u00e9duite)'));
+  t('    Le locataire peut mettre fin au contrat \u00e0 tout moment avec un pr\u00e9avis de 3 mois.',false,9,GREY);
+  hr(); chk();
+
+  sec('IV. CONDITIONS FINANCIERES');
+  info('Loyer mensuel :',loyer.toLocaleString('fr-FR')+' \u20ac ('+loyerL+')');
+  info('Charges :',charges+' \u20ac/mois');
+  info('Total mensuel :',(loyer+charges).toLocaleString('fr-FR')+' \u20ac');
+  info('Paiement :','Le '+jourPaie+' de chaque mois - \u00c0 \u00e9choir - Virement bancaire');
+  hr(); chk();
+
+  sec('V. DEPOT DE GARANTIE');
+  info('Montant :',depot.toLocaleString('fr-FR')+' \u20ac ('+depotL+') - Par virement');
+  hr(); chk();
+
+  sec('VI. CLAUSE RESOLUTOIRE');
+  t('    Le bail sera r\u00e9sili\u00e9 de plein droit en cas de d\u00e9faut de paiement des loyers et charges pendant deux mois, '
+    +'de non-versement du d\u00e9p\u00f4t de garantie, ou de d\u00e9faut d'assurance locative.',false,9,GREY);
+  hr(); chk();
+
+  sec('VII. ANNEXES');
+  ['Dossier de diagnostic technique (DPE, plomb, amiante, \u00e9lectricit\u00e9, gaz)',
+   'Notice d'information droits et obligations des locataires et bailleurs',
+   'Etat des lieux d'entr\u00e9e'
+  ].forEach(function(a){t('    - '+a,false,9,GREY);});
+  hr(); chk();
+
+  y+=4;
+  t('Fait \u00e0 Narbonne, le '+today,false,9.5,GREY);
+  y+=8;
+  var c1=ml,c2=W/2+5;
+  pdf.setFont('helvetica','bold');pdf.setFontSize(9.5);pdf.setTextColor.apply(pdf,DARK);
+  pdf.text('Signature du bailleur',c1,y);pdf.text('Signature du locataire',c2,y);y+=4;
+  pdf.setFont('helvetica','italic');pdf.setFontSize(8.5);pdf.setTextColor.apply(pdf,GREY);
+  pdf.text('(pr\u00e9c\u00e9d\u00e9e de \u00ab Lu et approuv\u00e9 \u00bb)',c1,y);
+  pdf.text('(pr\u00e9c\u00e9d\u00e9e de \u00ab Lu et approuv\u00e9 \u00bb)',c2,y);y+=16;
+  pdf.setDrawColor(180,180,180);pdf.setLineWidth(0.4);
+  pdf.line(c1,y,c1+70,y);pdf.line(c2,y,c2+70,y);
+  pdf.setDrawColor.apply(pdf,DARK);pdf.setLineWidth(0.4);pdf.line(ml,290,W-mr,290);
+  pdf.setFont('helvetica','normal');pdf.setFontSize(7.5);pdf.setTextColor.apply(pdf,DARK);
+  pdf.text('SCI Thomarion \u2022 83 av. Jean Camps, 11100 Narbonne \u2022 06 63 09 74 82 \u2022 Siret : 918 029 810 00010 \u2022 Bail conforme loi ALUR',W/2,294,{align:'center'});
+
+  var fn='bail_'+nom.replace(/\s+/g,'_')+'_'+dateD.replace(/\//g,'-')+'.pdf';
+  dlPDF(pdf,fn);
+  dbAddHist({type:'Bail',qui:nom,periode:adresse,montant:loyer+' \u20ac',fichier:fn});
+  toast('Bail g\u00e9n\u00e9r\u00e9 !','ok');
+}
+
+// ═══════════════════════════════════════════════════════
+// HISTORIQUE GLOBAL
+// ═══════════════════════════════════════════════════════
+function renderAllHist(){
+  var c=document.getElementById('allHistTable');
+  if(!hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
+  var bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
+  c.innerHTML='<table class="hist-table"><thead><tr><th>Type</th><th>B\u00e9n\u00e9ficiaire</th><th>P\u00e9riode</th><th>Montant</th><th>G\u00e9n\u00e9r\u00e9 le</th></tr></thead><tbody>'
+    +hist.map(function(x){return '<tr><td><span class="badge '+(bc[x.type]||'badge-blue')+'">'+x.type+'</span></td><td>'+x.qui+'</td><td>'+x.periode+'</td><td>'+x.montant+'</td><td style="color:var(--muted)">'+x.date+'</td></tr>';}).join('')
+    +'</tbody></table>';
+}
+
+// ═══════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════
+var now=new Date();
+['qMois','fMois','fdMois'].forEach(function(id){document.getElementById(id).value=now.getMonth()+1;});
+['qAnnee','fAnnee','fdAnnee'].forEach(function(id){document.getElementById(id).value=now.getFullYear();});
+document.getElementById('bailDateDebut').value=now.toISOString().split('T')[0];
+bailAutoLettres();
+fdCalc();
+</script>
 </body>
 </html>
