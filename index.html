@@ -4,15 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SCI Thomarion — Gestion locative</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
 </script>
 <script src="https://cdn.jsdelivr.net/npm/docx@9.6.1/dist/index.iife.js"></script>
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp }
-  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+<script>
 
 const firebaseConfig = {
   apiKey: "AIzaSyB6BGTt7qfmSF6M92ijwEnhdvfoXmY-zVk",
@@ -23,11 +21,11 @@ const firebaseConfig = {
   appId: "1:890402411714:web:e112344008dd4d069f975b"
 };
 
-const app  = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db   = getFirestore(app);
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
 
-onAuthStateChanged(auth, user => {
+auth.onAuthStateChanged(user => {
   if (user) {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('mainApp').style.display    = 'block';
@@ -44,10 +42,10 @@ window.doLogin = async function() {
   const pw    = document.getElementById('loginPw').value;
   const err   = document.getElementById('loginErr');
   err.textContent = '';
-  try { await signInWithEmailAndPassword(auth, email, pw); }
+  try { await auth.signInWithEmailAndPassword(email, pw); }
   catch(e) { err.textContent = 'Email ou mot de passe incorrect.'; }
 };
-window.doLogout = async function() { await signOut(auth); };
+window.doLogout = async function() { await auth.signOut(); };
 
 // Attacher les evenements login apres chargement du DOM
 document.addEventListener('DOMContentLoaded', function() {
@@ -63,15 +61,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 function startListeners(uid) {
-  onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
+  db.collection('users').doc(uid).collection('qLocs').onSnapshot(snap => {
     window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderQLocs(); renderQHist();
   });
-  onSnapshot(collection(db, 'users', uid, 'fLocs'), snap => {
+  db.collection('users').doc(uid).collection('fLocs').onSnapshot(snap => {
     window.fLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderFLocs(); renderFHist();
   });
-  onSnapshot(collection(db, 'users', uid, 'hist'), snap => {
+  db.collection('users').doc(uid).collection('hist').onSnapshot(snap => {
     window.hist = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
@@ -80,11 +78,11 @@ function startListeners(uid) {
 }
 
 function uid() { return auth.currentUser?.uid; }
-async function dbSet(col, id, data) { await setDoc(doc(db,'users',uid(),col,id), data); }
-async function dbDel(col, id) { await deleteDoc(doc(db,'users',uid(),col,id)); }
+async function dbSet(col, id, data) { await db.collection('users').doc(uid()).collection(col).doc(id).set(data); }
+async function dbDel(col, id) { await db.collection('users').doc(uid()).collection(col).doc(id).delete(); }
 async function dbAddHist(entry) {
   const id = Date.now().toString();
-  await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
+  await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: firebase.firestore.FieldValue.serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
 }
 
 // ── MOIS ──────────────────────────────────────────────────────────
@@ -543,7 +541,7 @@ window.openDriveModal = async function(histId) {
   if(url === null) return; // annulé
   // Save to Firestore
   try {
-    await db.collection('users').doc(UID).collection('hist').doc(histId).update({ driveUrl: url });
+    await db.collection('users').doc(uid()).collection('hist').doc(histId).update({ driveUrl: url });
     toast('Lien enregistré !', 'ok');
   } catch(e) { toast('Erreur : ' + e.message, 'err'); }
 };
@@ -1648,7 +1646,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     <div class="login-sub">Gestion locative &mdash; Acc&egrave;s s&eacute;curis&eacute;</div>
     <div class="login-field"><label>Adresse email</label><input id="loginEmail" type="email" placeholder="votre@email.com" autocomplete="email"/></div>
     <div class="login-field"><label>Mot de passe</label><input id="loginPw" type="password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;" autocomplete="current-password"/></div>
-    <button class="login-btn" id="loginBtn">Se connecter</button>
+    <button class="login-btn" onclick="doLogin()">Se connecter</button>
     <div id="loginErr" class="login-err"></div>
   </div>
 </div>
