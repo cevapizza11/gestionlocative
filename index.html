@@ -9,7 +9,7 @@
 <script src="https://cdn.jsdelivr.net/npm/docx@9.6.1/dist/index.iife.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-// Auth supprimée - PIN utilisé
+
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -23,479 +23,13 @@ const firebaseConfig = {
 };
 
 const app  = initializeApp(firebaseConfig);
-// const auth = supprimé
+
 const db   = getFirestore(app);
 
-// Auth PIN - pas de Firebase Auth
-
-window.doLogin = function() {
-  const pin = document.getElementById('loginPin').value.trim();
-  const err = document.getElementById('loginErr');
-  err.textContent = '';
-  if(pin === '7938') {
-    document.getElementById('loginScreen').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
-    startListeners(UID);
-  } else {
-    err.textContent = 'Code PIN incorrect.';
-    document.getElementById('loginPin').value = '';
-  }
-};
-window.doLogout = function() {
-  document.getElementById('mainApp').style.display = 'none';
-  document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('loginPin').value = '';
-};
-
-// Attacher les evenements login apres chargement du DOM
-document.addEventListener('DOMContentLoaded', function() {
-  var btnLogin = document.getElementById('loginBtn');
-  var btnLogout = document.getElementById('logoutBtn');
-  var pwInput = document.getElementById('loginPw');
-  if(btnLogin) btnLogin.addEventListener('click', window.doLogin);
-  if(btnLogout) btnLogout.addEventListener('click', window.doLogout);
-  if(pwInput) pwInput.addEventListener('keydown', function(e) {
-    if(e.key === 'Enter') window.doLogin();
-  });
-});
+startListeners(UID);
 
 
-function startListeners(uid) {
-  onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
-    window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderQLocs(); renderQHist();
-  });
-  onSnapshot(collection(db, 'users', uid, 'fLocs'), snap => {
-    window.fLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    renderFLocs(); renderFHist();
-  });
-  onSnapshot(collection(db, 'users', uid, 'hist'), snap => {
-    window.hist = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
-    renderQHist(); renderFHist(); renderFdHist(); renderAllHist(); if(typeof renderBailHist==='function') renderBailHist();
-  });
-}
 
-function uid() { return auth.currentUser?.uid; }
-async function dbSet(col, id, data) { await setDoc(doc(db,'users',uid(),col,id), data); }
-async function dbDel(col, id) { await deleteDoc(doc(db,'users',uid(),col,id)); }
-async function dbAddHist(entry) {
-  const id = Date.now().toString();
-  await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
-}
-
-// ── MOIS ──────────────────────────────────────────────────────────
-const MFRDOC  = ["","janvier","f\u00e9vrier","mars","avril","mai","juin","juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"];
-const MCAPDOC = ["","Janvier","F\u00e9vrier","Mars","Avril","Mai","Juin","Juillet","Ao\u00fbt","Septembre","Octobre","Novembre","D\u00e9cembre"];
-
-// ── UTILS ─────────────────────────────────────────────────────────
-function pad2(n){ return String(n).padStart(2,'0'); }
-function dernJ(m,a){ return new Date(a,m,0).getDate(); }
-function init(nom){ return nom.split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
-function fmtEur(n){ return n.toFixed(2).replace('.',',') + '\u20ac'; }
-
-function nLettres(n){
-  const u=['','un','deux','trois','quatre','cinq','six','sept','huit','neuf','dix','onze','douze','treize','quatorze','quinze','seize','dix-sept','dix-huit','dix-neuf'];
-  const d=['','dix','vingt','trente','quarante','cinquante','soixante','soixante','quatre-vingt','quatre-vingt'];
-  if(n===0)return'z\u00e9ro';
-  let r='';
-  if(n>=1000){const m=Math.floor(n/1000);r+=(m===1?'mille':nLettres(m)+' mille');n%=1000;if(n>0)r+=' ';}
-  if(n>=100){const c=Math.floor(n/100);r+=(c===1?'cent':u[c]+' cent');n%=100;if(n>0)r+=' ';else if(c>1)r+='s';}
-  if(n>=80){const dd=Math.floor(n/10),uu=n%10;if(dd===9)r+='quatre-vingt-'+u[uu+10];else if(dd===8)r+=uu===0?'quatre-vingts':'quatre-vingt-'+u[uu];else{const dz=d[dd];if(uu===0)r+=dz;else if(uu===1&&dd===7)r+='soixante et onze';else if(dd===7)r+='soixante-'+u[uu+10];else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}}
-  else if(n>=20){const dd=Math.floor(n/10),uu=n%10,dz=d[dd];if(uu===0)r+=dz;else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}
-  else if(n>0)r+=u[n];
-  return r;
-}
-function loyerLettres(m){
-  const e=Math.floor(m),c=Math.round((m-e)*100);
-  let s=nLettres(e)+' euro'+(e>1?'s':'');
-  if(c>0)s+=' et '+nLettres(c)+' centime'+(c>1?'s':'');
-  return s;
-}
-
-// ── PDF ENGINE ────────────────────────────────────────────────────
-function dlPDF(pdf, filename) {
-  // Fonctionne sur tous les navigateurs y compris Safari iOS
-  const blob = pdf.output('blob');
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
-
-// ── PDF QUITTANCE ─────────────────────────────────────────────────
-function genPdfQuittance(loc, mois, annee, jourPaie) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25, cw = W - ml - mr;
-  let y = 20;
-
-  // Couleur principale
-  const BLUE = [18, 166, 208]; // #12A6D0
-
-  // Titre centré
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(18);
-  pdf.setTextColor(...BLUE);
-  pdf.text('QUITTANCE DE LOYER', W/2, y, {align:'center'});
-  y += 9;
-
-  pdf.setFontSize(13);
-  pdf.setTextColor(...BLUE);
-  const mNom = MFRDOC[mois];
-  pdf.text(`Quittance de loyer du mois de ${mNom} ${annee}`, W/2, y, {align:'center'});
-  y += 10;
-
-  // Ligne séparatrice
-  pdf.setDrawColor(...BLUE);
-  pdf.setLineWidth(0.5);
-  pdf.line(ml, y, W-mr, y);
-  y += 8;
-
-  // Adresse de location
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(30,30,30);
-  pdf.text('Adresse de location :', ml, y);
-  y += 6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.text(loc.adresse, ml + 4, y);
-  y += 10;
-
-  // Corps du texte
-  const moisStr = pad2(mois);
-  const dj = dernJ(mois, annee);
-  const loyer = parseFloat(loc.loyer);
-  const ltx = loyerLettres(loyer);
-  const texte = `Je soussign\u00e9 MARTIN Thomas, propri\u00e9taire du logement d\u00e9sign\u00e9 ci-dessus, d\u00e9clare avoir re\u00e7u de ${loc.nom} la somme de ${ltx} (en toutes lettres), ${Math.round(loyer)} euros (en chiffres), au titre du paiement du loyer pour la p\u00e9riode de location du 01/${moisStr}/${annee} au ${dj}/${moisStr}/${annee} et lui en donne quittance, sous r\u00e9serve de tous mes droits.`;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(30,30,30);
-  const lignes = pdf.splitTextToSize(texte, cw);
-  pdf.text(lignes, ml, y);
-  y += lignes.length * 5.5 + 8;
-
-  // Ligne
-  pdf.setDrawColor(220,220,220);
-  pdf.setLineWidth(0.3);
-  pdf.line(ml, y, W-mr, y);
-  y += 8;
-
-  // Détail règlement
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(30,30,30);
-  pdf.text('D\u00e9tail du r\u00e8glement :', ml, y);
-  y += 7;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  const jps = pad2(jourPaie);
-  const jf  = pad2(Math.min(jourPaie+8, dj));
-  const lignes2 = [
-    `Loyer : ${Math.round(loyer)} euros`,
-    `Provision pour charges : 0 euros`,
-    `Total : ${Math.round(loyer)} euros`,
-    `Date du paiement : le ${jps}/${moisStr}/${annee}`,
-    `Fait \u00e0 Narbonne, le ${jf}/${moisStr}/${annee}`,
-  ];
-  for (const l of lignes2) {
-    pdf.text(l, ml+4, y);
-    y += 6;
-  }
-  y += 4;
-
-  // Signature
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.text('Signature', ml, y);
-  y += 6;
-  pdf.setFont('helvetica','normal');
-  pdf.text('Thomas MARTIN', ml, y);
-  y += 14;
-
-  // Ligne
-  pdf.setDrawColor(220,220,220);
-  pdf.line(ml, y, W-mr, y);
-  y += 7;
-
-  // Mention légale
-  pdf.setFontSize(8.5);
-  pdf.setTextColor(120,120,120);
-  const mention = `Cette quittance annule tous les re\u00e7us qui auraient pu \u00eatre \u00e9tablis pr\u00e9c\u00e9demment en cas de paiement partiel du montant du pr\u00e9sent terme. Elle est \u00e0 conserver pendant trois ans par le locataire (article 7-1 de la loi n\u00b0\u00a089-462 du 6 juillet 1989).`;
-  const mLeg = pdf.splitTextToSize(mention, cw);
-  pdf.text(mLeg, ml, y);
-
-  // Pied de page
-  const yFoot = 280;
-  pdf.setDrawColor(...BLUE);
-  pdf.setLineWidth(0.4);
-  pdf.line(ml, yFoot, W-mr, yFoot);
-  pdf.setFontSize(8.5);
-  pdf.setTextColor(...BLUE);
-  pdf.text('SCI Thomarion  \u2022  83 avenue Jean Camps, 11100 Narbonne  \u2022  06 63 09 74 82  \u2022  Siret : 918 029 810 00010', W/2, yFoot+5, {align:'center'});
-
-  return pdf;
-}
-
-// ── PDF FACTURE LOYER ─────────────────────────────────────────────
-function genPdfLoyer(loc, mois, annee, jour) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25;
-  let y = 22;
-
-  const DARK = [22,33,62]; // #16213e
-
-  // En-tête émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(16);
-  pdf.setTextColor(...DARK);
-  pdf.text('SCI THOMARION', ml, y);
-  y += 10;
-
-  // Date
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.setTextColor(60,60,60);
-  const mNom = MCAPDOC[mois];
-  pdf.text(`NARBONNE, le ${jour} ${mNom} ${annee}`, ml, y);
-  y += 12;
-
-  // Destinataire
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text(loc.nom, ml, y); y+=6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(loc.adr1, ml, y); y+=5.5;
-  pdf.text(loc.adr2, ml, y); y+=12;
-
-  // Référence
-  const mStr = pad2(mois);
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`REF/ Loyer ${mNom} ${annee}`, ml, y); y+=5.5;
-  pdf.text(`Local ${loc.local}`, ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  if(loc.localAdr) { pdf.text(loc.localAdr, ml, y); y+=5.5; }
-  y += 3;
-
-  // Numéro de facture
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  const aStr = String(annee);
-  pdf.text(`Facture ${annee}-${mStr}-L${loc.local}`, ml, y);
-  y += 9;
-
-  // Titre loyer
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(30,30,30);
-  pdf.text(`Loyer Mois ${mNom} ${annee}`, ml, y);
-  y += 8;
-
-  // Tableau montants
-  const ht = loc.ht;
-  const tvaV = Math.round(ht*(loc.tva/100)*100)/100;
-  const ttc = Math.round((ht+tvaV)*100)/100;
-  const col1 = 120, col2 = W-mr;
-  const rows = [
-    ['HT', fmtEur(ht)],
-    [`T.V.A ${loc.tva}.00%`, fmtEur(tvaV)],
-    ['TOTAL Loyer TTC', fmtEur(ttc)],
-  ];
-
-  pdf.setLineWidth(0.3);
-  for (let i=0; i<rows.length; i++) {
-    const isTot = i === rows.length-1;
-    if(isTot) {
-      pdf.setFillColor(240,240,245);
-      pdf.rect(ml, y-4.5, col2-ml, 7, 'F');
-      pdf.setFont('helvetica','bold');
-    } else {
-      pdf.setFont('helvetica','normal');
-    }
-    pdf.setFontSize(10.5);
-    pdf.setTextColor(30,30,30);
-    pdf.text(rows[i][0], col1-2, y, {align:'right'});
-    pdf.text(rows[i][1], col2-2, y, {align:'right'});
-    pdf.setDrawColor(200,200,200);
-    pdf.line(ml, y+2, col2, y+2);
-    y += 8;
-  }
-  y += 6;
-
-  // Montant en lettres
-  pdf.setFont('helvetica','italic');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  const ltx = loyerLettres(ttc);
-  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
-  y += 9;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10);
-  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance.\nCordiales salutations.', W-ml-mr);
-  pdf.text(lignes, ml, y);
-  y += lignes.length * 5.5 + 12;
-
-  // Pied émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(...DARK);
-  pdf.text('SCI Thomarion,', ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  pdf.text('83 avenue Jean Camps, 11100 Narbonne,', ml, y); y+=5.5;
-  pdf.text('06 63 09 74 82,', ml, y); y+=5.5;
-  pdf.text('N\u00b0 siret : 918 029 810 00010', ml, y);
-
-  return pdf;
-}
-
-// ── PDF FOND DE COMMERCE ──────────────────────────────────────────
-function genPdfFond(mois, annee, lHT, lTV, cHT, cTV) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25;
-  let y = 22;
-
-  const DARK = [22,33,62];
-  const mNom = MCAPDOC[mois];
-  const mStr = pad2(mois);
-  const lTC = lHT+lTV, cTC = cHT+cTV;
-  const tHT = lHT+cHT, tTV = lTV+cTV, tTC = lTC+cTC;
-
-  // En-tête émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(16);
-  pdf.setTextColor(...DARK);
-  pdf.text('SASU CEVA PIZZA', ml, y);
-  y += 10;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`NARBONNE, le 1er ${mNom} ${annee}`, ml, y);
-  y += 12;
-
-  // Destinataire
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text('Sasu Pizzeria Fascianella', ml, y); y+=6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text('83A avenue Jean Camp  11100 Narbonne', ml, y); y+=12;
-
-  // Référence
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`REF/ ${mNom} ${annee}`, ml, y); y+=5.5;
-  pdf.text('Fond de commerce', ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  pdf.text('83 avenue Jean Camps, 11100 Narbonne', ml, y); y+=9;
-
-  // Numéro de facture
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text(`Facture ${annee}-${mStr}-F1`, ml, y);
-  y += 10;
-
-  // Tableau
-  const col1x = ml, col2x = W-mr;
-  const rowH = 7.5;
-  const rows = [
-    [`Loyer Mois ${mNom} ${annee}`, '', true, false],
-    ['HT', fmtEur(lHT), false, false],
-    ['T.V.A 20.00%', fmtEur(lTV), false, false],
-    ['TOTAL Loyer TTC', fmtEur(lTC), false, true],
-    [`Provision sur charges (r\u00e9guler en fin d\u2019ann\u00e9e) HT`, fmtEur(cHT), false, false],
-    ['TVA 20,00%', fmtEur(cTV), false, false],
-    ['TOTAL charge TTC', fmtEur(cTC), false, true],
-    ['Total HT', fmtEur(tHT), false, false],
-    ['Total TVA 20,00%', fmtEur(tTV), false, false],
-    ['Total \u00e0 r\u00e9gler TTC', fmtEur(tTC), false, true],
-  ];
-
-  pdf.setDrawColor(180,180,180);
-  pdf.setLineWidth(0.3);
-  for (const [label, val, isHead, isTot] of rows) {
-    if(isHead) {
-      pdf.setFillColor(22,33,62);
-      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(255,255,255);
-      pdf.text(label, col1x+3, y-0.5);
-    } else if(isTot) {
-      pdf.setFillColor(230,235,245);
-      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(30,30,30);
-      pdf.text(label, col1x+3, y-0.5);
-      pdf.text(val, col2x-3, y-0.5, {align:'right'});
-    } else {
-      pdf.setFont('helvetica','normal');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(40,40,40);
-      pdf.text(label, col1x+3, y-0.5);
-      pdf.text(val, col2x-3, y-0.5, {align:'right'});
-    }
-    pdf.line(col1x, y+2, col2x, y+2);
-    y += rowH;
-  }
-  y += 8;
-
-  // Montant en lettres
-  pdf.setFont('helvetica','italic');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  const ltx = loyerLettres(tTC);
-  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
-  y += 8;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10);
-  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance. Cordiales salutations.', W-ml-mr);
-  pdf.text(lignes, ml, y);
-
-  return pdf;
-}
-
-// ── ETAT ──────────────────────────────────────────────────────────
-window.qLocs=[]; window.fLocs=[]; window.hist=[];
-let qSel=null, fSel=null;
-
-async function dbSetL(col,id,data){await dbSet(col,id,data);}
-
-// ── QUITTANCES ────────────────────────────────────────────────────
-window.qAjouter = async function(){
-  const nom=document.getElementById('qNewNom').value.trim();
-  const adr=document.getElementById('qNewAdresse').value.trim();
-  const loyer=document.getElementById('qNewLoyer').value.trim();
-  if(!nom||!adr||!loyer){toast('Remplissez tous les champs.','err');return;}
-  const id=Date.now().toString();
-  await dbSet('qLocs',id,{nom,adresse:adr,loyer:parseFloat(loyer)});
-  document.getElementById('qNewNom').value='';
-  document.getElementById('qNewAdresse').value='';
-  document.getElementById('qNewLoyer').value='';
-  toast(nom+' ajout\u00e9(e) !','ok');
-  qSel=id; updateQBadge();
-};
 window.qSelLoc=function(id){qSel=id;renderQLocs();updateQBadge();};
 function updateQBadge(){
   const l=window.qLocs.find(x=>x.id===qSel);
@@ -621,6 +155,233 @@ window.renderFHist=function(){
 };
 
 // ── FOND DE COMMERCE ──────────────────────────────────────────────
+function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomGerant, emetteur, adrGerant) {
+  nomGerant=nomGerant||'Sasu Pizzeria Fascianella';
+  emetteur=emetteur||'SASU CEVA PIZZA';
+  adrGerant=adrGerant||'83 avenue Jean Camps, 11100 Narbonne';
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W = 210, ml = 25, mr = 25;
+  let y = 22;
+
+  const DARK = [22,33,62];
+  const mNom = MCAPDOC[mois];
+  const mStr = pad2(mois);
+  const lTC = lHT+lTV, cTC = cHT+cTV;
+  const tHT = lHT+cHT, tTV = lTV+cTV, tTC = lTC+cTC;
+
+  // En-tête émetteur
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(...DARK);
+  pdf.text(emetteur.toUpperCase(), ml, y);
+  y += 10;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(11);
+  pdf.setTextColor(60,60,60);
+  pdf.text(`NARBONNE, le 1er ${mNom} ${annee}`, ml, y);
+  y += 12;
+
+  // Destinataire
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(...DARK);
+  pdf.text(nomGerant, ml, y); y+=6;
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  pdf.text(adrGerant, ml, y); y+=12;
+
+  // Référence
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  pdf.text(`REF/ ${mNom} ${annee}`, ml, y); y+=5.5;
+  pdf.text('Fond de commerce', ml, y); y+=5.5;
+  pdf.setFont('helvetica','normal');
+  pdf.text(adrGerant, ml, y); y+=9;
+
+  // Numéro de facture
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(...DARK);
+  pdf.text(`Facture ${annee}-${mStr}-F1`, ml, y);
+  y += 10;
+
+  // Tableau
+  const col1x = ml, col2x = W-mr;
+  const rowH = 7.5;
+  const rows = [
+    [`Loyer Mois ${mNom} ${annee}`, '', true, false],
+    ['HT', fmtEur(lHT), false, false],
+    ['T.V.A 20.00%', fmtEur(lTV), false, false],
+    ['TOTAL Loyer TTC', fmtEur(lTC), false, true],
+    [`Provision sur charges (r\u00e9guler en fin d\u2019ann\u00e9e) HT`, fmtEur(cHT), false, false],
+    ['TVA 20,00%', fmtEur(cTV), false, false],
+    ['TOTAL charge TTC', fmtEur(cTC), false, true],
+    ['Total HT', fmtEur(tHT), false, false],
+    ['Total TVA 20,00%', fmtEur(tTV), false, false],
+    ['Total \u00e0 r\u00e9gler TTC', fmtEur(tTC), false, true],
+  ];
+
+  pdf.setDrawColor(180,180,180);
+  pdf.setLineWidth(0.3);
+  for (const [label, val, isHead, isTot] of rows) {
+    if(isHead) {
+      pdf.setFillColor(22,33,62);
+      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
+      pdf.setFont('helvetica','bold');
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(255,255,255);
+      pdf.text(label, col1x+3, y-0.5);
+    } else if(isTot) {
+      pdf.setFillColor(230,235,245);
+      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
+      pdf.setFont('helvetica','bold');
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(30,30,30);
+      pdf.text(label, col1x+3, y-0.5);
+      pdf.text(val, col2x-3, y-0.5, {align:'right'});
+    } else {
+      pdf.setFont('helvetica','normal');
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(40,40,40);
+      pdf.text(label, col1x+3, y-0.5);
+      pdf.text(val, col2x-3, y-0.5, {align:'right'});
+    }
+    pdf.line(col1x, y+2, col2x, y+2);
+    y += rowH;
+  }
+  y += 8;
+
+  // Montant en lettres
+  pdf.setFont('helvetica','italic');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  const ltx = loyerLettres(tTC);
+  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
+  y += 8;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10);
+  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance. Cordiales salutations.', W-ml-mr);
+  pdf.text(lignes, ml, y);
+
+  return pdf;
+}
+
+// ── ETAT ──────────────────────────────────────────────────────────
+window.qLocs=[]; window.fLocs=[]; window.hist=[];
+let qSel=null, fSel=null;
+
+async function dbSetL(col,id,data){await dbSet(col,id,data);}
+
+// ── QUITTANCES ────────────────────────────────────────────────────
+window.qAjouter = async function(){
+  const nom=document.getElementById('qNewNom').value.trim();
+  const adr=document.getElementById('qNewAdresse').value.trim();
+  const loyer=document.getElementById('qNewLoyer').value.trim();
+  if(!nom||!adr||!loyer){toast('Remplissez tous les champs.','err');return;}
+  const id=Date.now().toString();
+  await dbSet('qLocs',id,{nom,adresse:adr,loyer:parseFloat(loyer)});
+  document.getElementById('qNewNom').value='';
+  document.getElementById('qNewAdresse').value='';
+  document.getElementById('qNewLoyer').value='';
+  toast(nom+' ajout\u00e9(e) !','ok');
+  qSel=id; updateQBadge();
+};
+window.qSelLoc=function(id){qSel=id;renderQLocs();updateQBadge();};
+
+window.fdLocs=[]; let fdSel=null;
+
+window.fdAjouter=async function(){
+  const nom=document.getElementById('fdNewNom').value.trim();
+  const adr=document.getElementById('fdNewAdr').value.trim();
+  const em=document.getElementById('fdNewEmetteur').value.trim();
+  const lHT=+document.getElementById('fdNewLoyerHT').value||0;
+  const lTV=+document.getElementById('fdNewLoyerTVA').value||0;
+  const cHT=+document.getElementById('fdNewChargesHT').value||0;
+  const cTV=+document.getElementById('fdNewChargesTVA').value||0;
+  if(!nom||!adr){toast('Nom et adresse obligatoires.','err');return;}
+  const id=Date.now().toString();
+  await dbSet('fdLocs',id,{nom,adr,emetteur:em,loyerHT:lHT,loyerTVA:lTV,chargesHT:cHT,chargesTVA:cTV});
+  ['fdNewNom','fdNewAdr','fdNewEmetteur','fdNewLoyerHT','fdNewLoyerTVA','fdNewChargesHT','fdNewChargesTVA'].forEach(i=>document.getElementById(i).value='');
+  toast(nom+' ajouté !','ok'); fdSel=id; updateFdBadge();
+};
+
+window.fdSelLoc=function(id){fdSel=id;renderFdLocs();updateFdBadge();};
+
+function updateFdBadge(){
+  const l=window.fdLocs.find(x=>x.id===fdSel);
+  document.getElementById('fdGenBtn').disabled=!l;
+  const b=document.getElementById('fdSelBadge');
+  if(l){
+    b.style.display='flex';
+    document.getElementById('fdSelNom').textContent=l.nom;
+    const ttc=(l.loyerHT+l.loyerTVA+l.chargesHT+l.chargesTVA);
+    document.getElementById('fdSelTTC').textContent=ttc.toFixed(2)+' € TTC';
+    document.getElementById('fdLoyerHT').value=l.loyerHT||0;
+    document.getElementById('fdLoyerTVA').value=l.loyerTVA||0;
+    document.getElementById('fdChargesHT').value=l.chargesHT||0;
+    document.getElementById('fdChargesTVA').value=l.chargesTVA||0;
+    fdCalc();
+  } else b.style.display='none';
+}
+
+window.fdEditOpen=function(id,e){
+  e.stopPropagation();
+  const l=window.fdLocs.find(x=>x.id===id);if(!l)return;
+  document.getElementById('fdEditId').value=id;
+  document.getElementById('fdEditNom').value=l.nom;
+  document.getElementById('fdEditAdr').value=l.adr||'';
+  document.getElementById('fdEditEmetteur').value=l.emetteur||'';
+  document.getElementById('fdEditLoyerHT').value=l.loyerHT||0;
+  document.getElementById('fdEditLoyerTVA').value=l.loyerTVA||0;
+  document.getElementById('fdEditChargesHT').value=l.chargesHT||0;
+  document.getElementById('fdEditChargesTVA').value=l.chargesTVA||0;
+  document.getElementById('fdEditModal').classList.add('open');
+};
+
+window.fdSaveEdit=async function(){
+  const id=document.getElementById('fdEditId').value;
+  const nom=document.getElementById('fdEditNom').value.trim();
+  const adr=document.getElementById('fdEditAdr').value.trim();
+  if(!nom||!adr){toast('Champs manquants','err');return;}
+  await dbSet('fdLocs',id,{nom,adr,
+    emetteur:document.getElementById('fdEditEmetteur').value.trim(),
+    loyerHT:+document.getElementById('fdEditLoyerHT').value,
+    loyerTVA:+document.getElementById('fdEditLoyerTVA').value,
+    chargesHT:+document.getElementById('fdEditChargesHT').value,
+    chargesTVA:+document.getElementById('fdEditChargesTVA').value
+  });
+  closeModal('fdEditModal');
+  if(fdSel===id)updateFdBadge();
+  toast('Modifié.','ok');
+};
+
+window.fdDelLoc=async function(id,e){
+  e.stopPropagation();
+  const l=window.fdLocs.find(x=>x.id===id);
+  if(!confirm('Supprimer '+l.nom+' ?'))return;
+  await dbDel('fdLocs',id);
+  if(fdSel===id){fdSel=null;updateFdBadge();}
+  toast('Supprimé.','ok');
+};
+
+window.renderFdLocs=function(){
+  const c=document.getElementById('fdLocList');
+  if(!window.fdLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#129309;</div>Aucun gérant.</div>';return;}
+  c.innerHTML=window.fdLocs.map(l=>`<div class="loc-item${l.id===fdSel?' sel':''}" onclick="fdSelLoc('${l.id}')">
+    <div class="loc-av">${init(l.nom)}</div>
+    <div class="loc-info"><div class="loc-nom">${l.nom}</div><div class="loc-sub">${l.emetteur||''} · ${((l.loyerHT||0)+(l.loyerTVA||0)+(l.chargesHT||0)+(l.chargesTVA||0)).toFixed(2)} € TTC</div></div>
+    <div class="loc-actions">
+      <button class="btn-edit-sm" onclick="fdEditOpen('${l.id}',event)">&#9998;</button>
+      <button class="btn-danger-sm" onclick="fdDelLoc('${l.id}',event)">&#128465;</button>
+    </div>
+  </div>`).join('');
+};
+
 window.fdCalc=function(){
   const lHT=+document.getElementById('fdLoyerHT').value||0;
   const lTV=+document.getElementById('fdLoyerTVA').value||0;
@@ -632,30 +393,11 @@ window.fdCalc=function(){
   document.getElementById('fdTotalHT').value=tHT.toFixed(2);
   document.getElementById('fdTotalTVA').value=tTV.toFixed(2);
   document.getElementById('fdTotalTTC').value=tTC.toFixed(2);
-  const m=+document.getElementById('fdMois').value,a=+document.getElementById('fdAnnee').value;
-  document.getElementById('fdPreview').textContent=
-`SASU CEVA PIZZA \u2192 Sasu Pizzeria Fascianella
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-P\u00e9riode  : ${MCAPDOC[m]} ${a}
-R\u00e9f\u00e9rence : ${a}-${pad2(m)}-F1
-
-Loyer fond de commerce
-  HT      : ${lHT.toFixed(2)} \u20ac
-  TVA 20% : ${lTV.toFixed(2)} \u20ac
-  TTC     : ${lTC.toFixed(2)} \u20ac
-
-Provision charges
-  HT      : ${cHT.toFixed(2)} \u20ac
-  TVA 20% : ${cTV.toFixed(2)} \u20ac
-  TTC     : ${cTC.toFixed(2)} \u20ac
-\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-Total HT  : ${tHT.toFixed(2)} \u20ac
-Total TVA : ${tTV.toFixed(2)} \u20ac
-TOTAL TTC : ${tTC.toFixed(2)} \u20ac
-
-En lettres : ${loyerLettres(tTC)}.`;
 };
+
 window.genFond=async function(){
+  if(!fdSel)return;
+  const loc=window.fdLocs.find(l=>l.id===fdSel);if(!loc)return;
   const mois=+document.getElementById('fdMois').value;
   const annee=+document.getElementById('fdAnnee').value;
   const lHT=+document.getElementById('fdLoyerHT').value;
@@ -664,20 +406,21 @@ window.genFond=async function(){
   const cTV=+document.getElementById('fdChargesTVA').value;
   const tTC=(lHT+lTV)+(cHT+cTV);
   try{
-    const pdf=genPdfFond(mois,annee,lHT,lTV,cHT,cTV);
+    const pdf=genPdfFond(mois,annee,lHT,lTV,cHT,cTV,loc.nom,loc.emetteur||'SASU Ceva Pizza',loc.adr);
     const mNom=MCAPDOC[mois];
-    const fn=`facture_fond_Fascianella_${mNom}_${annee}.pdf`;
+    const fn=`facture_fond_${loc.nom.replace(/\s+/g,'_')}_${mNom}_${annee}.pdf`;
     dlPDF(pdf,fn);
-    await dbAddHist({type:'Fond de commerce',qui:'Pizzeria Fascianella',periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' \u20ac TTC',fichier:fn});
+    await dbAddHist({type:'Fond de commerce',qui:loc.nom,periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' € TTC',fichier:fn});
     renderFdHist();
-    toast('Facture fond t\u00e9l\u00e9charg\u00e9e !','ok');
+    toast('Facture fond téléchargée !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
+
 window.renderFdHist=function(){
   const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
   const c=document.getElementById('fdHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
@@ -1521,9 +1264,6 @@ window.toast=function(msg,t='ok'){
 const now=new Date();
 ['qMois','fMois','fdMois'].forEach(id=>document.getElementById(id).value=now.getMonth()+1);
 ['qAnnee','fAnnee','fdAnnee'].forEach(id=>document.getElementById(id).value=now.getFullYear());
-['fdLoyerHT','fdLoyerTVA','fdChargesHT','fdChargesTVA','fdMois','fdAnnee'].forEach(id=>{
-  document.getElementById(id).addEventListener('input',window.fdCalc);
-});
 window.fdCalc();
 const _bd=document.getElementById('bailDateDebut');if(_bd)_bd.value=new Date().toISOString().split('T')[0];
 if(typeof bailAutoLettres==='function')bailAutoLettres();
@@ -1545,7 +1285,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--paper);color:var(--ink);m
 .login-btn{width:100%;background:var(--ink);color:white;border:none;border-radius:8px;padding:.75rem;font-family:'DM Sans',sans-serif;font-size:.95rem;font-weight:600;cursor:pointer;transition:background .15s;margin-top:.5rem;}
 .login-btn:hover{background:#243460;}
 .login-err{color:var(--danger);font-size:.8rem;text-align:center;margin-top:.75rem;min-height:1.2em;}
-#mainApp{display:none;}
+#mainApp{display:block;}
 .topbar{background:var(--ink);color:white;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;height:56px;position:sticky;top:0;z-index:200;box-shadow:0 2px 12px rgba(0,0,0,.22);}
 .topbar-left{display:flex;align-items:center;gap:1.5rem;}
 .topbar-brand{font-family:'DM Serif Display',serif;font-size:1.1rem;white-space:nowrap;}
@@ -1640,18 +1380,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
 </head>
 <body>
 
-<div id="loginScreen">
-  <div class="login-box">
-    <div class="login-logo">&#127968; SCI <span>Thomarion</span></div>
-    <div class="login-sub">Gestion locative &mdash; Entrez votre code PIN</div>
-    <div class="login-field">
-      <label>Code PIN</label>
-      <input id="loginPin" type="password" maxlength="4" placeholder="&bull;&bull;&bull;&bull;" style="font-size:1.5rem;letter-spacing:.5rem;text-align:center" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()"/>
-    </div>
-    <button class="login-btn" onclick="doLogin()">Se connecter</button>
-    <div id="loginErr" class="login-err"></div>
-  </div>
-</div>
+
 
 <div id="mainApp">
   <div class="topbar">
@@ -1666,8 +1395,8 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       </div>
     </div>
     <div class="topbar-right">
-      <span id="userEmail"></span>
-      <button class="logout-btn" id="logoutBtn">D&eacute;connexion</button>
+      
+      <button class="logout-btn" 
     </div>
   </div>
 
@@ -1766,47 +1495,73 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   </div>
 
   <div id="page-fond" class="page">
-    <div class="section-title">Fond de commerce <span class="pill">SASU Ceva Pizza</span></div>
-    <div class="three-col">
-      <div class="card">
-        <div class="card-head">&#9881; Param&egrave;tres</div>
-        <div class="card-body">
-          <div class="form-section">
-            <div class="form-section-title">&#128197; P&eacute;riode</div>
+    <div class="section-title">Fond de commerce <span class="pill">Location-g&eacute;rance</span></div>
+    <div class="two-col">
+      <aside>
+        <div class="card">
+          <div class="card-head">&#129309; G&eacute;rants</div>
+          <div id="fdLocList" class="loc-list"><div class="empty"><div class="empty-icon">&#129309;</div>Aucun g&eacute;rant.</div></div>
+        </div>
+        <div class="card">
+          <div class="card-head">&#10133; Nouveau g&eacute;rant</div>
+          <div class="card-body">
+            <div class="field"><label>Soci&eacute;t&eacute; g&eacute;rante</label><input id="fdNewNom" placeholder="ex: Sasu Pizzeria Fascianella"/></div>
+            <div class="field"><label>Adresse commerce</label><input id="fdNewAdr" placeholder="ex: 83A avenue Jean Camp, 11100 Narbonne"/></div>
+            <div class="field"><label>&Eacute;metteur facture</label><input id="fdNewEmetteur" placeholder="ex: SASU Ceva Pizza"/></div>
             <div class="row2">
+              <div class="field"><label>Loyer HT (&euro;)</label><input id="fdNewLoyerHT" type="number" step="0.01" placeholder="333.34"/></div>
+              <div class="field"><label>TVA loyer (&euro;)</label><input id="fdNewLoyerTVA" type="number" step="0.01" placeholder="66.66"/></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>Charges HT (&euro;)</label><input id="fdNewChargesHT" type="number" step="0.01" placeholder="166.67"/></div>
+              <div class="field"><label>TVA charges (&euro;)</label><input id="fdNewChargesTVA" type="number" step="0.01" placeholder="33.33"/></div>
+            </div>
+            <button class="btn btn-gold" style="width:100%" onclick="fdAjouter()">&#10133; Ajouter</button>
+          </div>
+        </div>
+      </aside>
+      <main>
+        <div class="gen-panel">
+          <div class="gen-head">
+            <h2>G&eacute;n&eacute;rer une facture fond</h2>
+            <p>S&eacute;lectionnez un g&eacute;rant, ajustez si besoin.</p>
+            <div id="fdSelBadge" class="sel-badge" style="display:none">
+              <span class="tag">S&eacute;lectionn&eacute;</span>
+              <span id="fdSelNom">-</span><span style="opacity:.4">&middot;</span>
+              <span id="fdSelTTC" style="color:var(--accent)">-</span>
+            </div>
+          </div>
+          <div class="gen-body">
+            <div class="row2" style="margin-bottom:.85rem">
               <div class="field"><label>Mois</label><select id="fdMois"><option value="1">Janvier</option><option value="2">F&eacute;vrier</option><option value="3">Mars</option><option value="4">Avril</option><option value="5">Mai</option><option value="6">Juin</option><option value="7">Juillet</option><option value="8">Ao&ucirc;t</option><option value="9">Septembre</option><option value="10">Octobre</option><option value="11">Novembre</option><option value="12">D&eacute;cembre</option></select></div>
               <div class="field"><label>Ann&eacute;e</label><input id="fdAnnee" type="number" value="2026" min="2020" max="2040"/></div>
             </div>
-          </div>
-          <div class="form-section">
             <div class="form-section-title">&#127968; Loyer fond de commerce</div>
-            <div class="row3">
-              <div class="field"><label>HT (&euro;)</label><input id="fdLoyerHT" type="number" step="0.01" value="333.34"/></div>
-              <div class="field"><label>TVA (&euro;)</label><input id="fdLoyerTVA" type="number" step="0.01" value="66.66"/></div>
+            <div class="row3" style="margin-bottom:.75rem">
+              <div class="field"><label>HT (&euro;)</label><input id="fdLoyerHT" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+              <div class="field"><label>TVA (&euro;)</label><input id="fdLoyerTVA" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
               <div class="field"><label>TTC (&euro;)</label><input id="fdLoyerTTC" type="number" step="0.01" readonly/></div>
             </div>
-          </div>
-          <div class="form-section">
             <div class="form-section-title">&#9889; Provision charges</div>
-            <div class="row3">
-              <div class="field"><label>HT (&euro;)</label><input id="fdChargesHT" type="number" step="0.01" value="166.67"/></div>
-              <div class="field"><label>TVA (&euro;)</label><input id="fdChargesTVA" type="number" step="0.01" value="33.33"/></div>
+            <div class="row3" style="margin-bottom:.75rem">
+              <div class="field"><label>HT (&euro;)</label><input id="fdChargesHT" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+              <div class="field"><label>TVA (&euro;)</label><input id="fdChargesTVA" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
               <div class="field"><label>TTC (&euro;)</label><input id="fdChargesTTC" type="number" step="0.01" readonly/></div>
             </div>
+            <hr/>
+            <div class="row3" style="margin-bottom:.9rem">
+              <div class="field"><label>Total HT</label><input id="fdTotalHT" type="number" step="0.01" readonly/></div>
+              <div class="field"><label>Total TVA</label><input id="fdTotalTVA" type="number" step="0.01" readonly/></div>
+              <div class="field"><label>TOTAL TTC</label><input id="fdTotalTTC" type="number" step="0.01" readonly style="font-weight:700"/></div>
+            </div>
+            <button class="btn-gen" id="fdGenBtn" onclick="genFond()" disabled style="width:100%;font-size:.9rem;padding:.68rem">&#128196; G&eacute;n&eacute;rer le PDF</button>
           </div>
-          <hr/>
-          <div class="row3" style="margin-bottom:.9rem">
-            <div class="field"><label>Total HT</label><input id="fdTotalHT" type="number" step="0.01" readonly/></div>
-            <div class="field"><label>Total TVA</label><input id="fdTotalTVA" type="number" step="0.01" readonly/></div>
-            <div class="field"><label>TOTAL TTC</label><input id="fdTotalTTC" type="number" step="0.01" readonly style="font-weight:700"/></div>
-          </div>
-          <button class="btn btn-gold" style="width:100%;font-size:.9rem;padding:.68rem" onclick="genFond()">&#128196; G&eacute;n&eacute;rer le PDF</button>
         </div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:1.2rem">
-        <div class="card"><div class="card-head">&#128065; Aper&ccedil;u</div><div class="card-body"><div id="fdPreview" class="preview-box">Remplissez les montants...</div></div></div>
-        <div class="card"><div class="card-head">&#128203; Derni&egrave;res factures fond</div><div id="fdHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div></div>
-      </div>
+        <div class="card">
+          <div class="card-head">&#128203; Derni&egrave;res factures fond</div>
+          <div id="fdHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div>
+        </div>
+      </main>
     </div>
   </div>
 
@@ -1920,6 +1675,29 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   </div>
 </div>
 
+<div id="fdEditModal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">Modifier g&eacute;rant <button class="modal-close" onclick="closeModal('fdEditModal')">&#10005;</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="fdEditId"/>
+      <div class="field"><label>Soci&eacute;t&eacute; g&eacute;rante</label><input id="fdEditNom"/></div>
+      <div class="field"><label>Adresse commerce</label><input id="fdEditAdr"/></div>
+      <div class="field"><label>&Eacute;metteur</label><input id="fdEditEmetteur"/></div>
+      <div class="row2">
+        <div class="field"><label>Loyer HT</label><input id="fdEditLoyerHT" type="number" step="0.01"/></div>
+        <div class="field"><label>TVA loyer</label><input id="fdEditLoyerTVA" type="number" step="0.01"/></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Charges HT</label><input id="fdEditChargesHT" type="number" step="0.01"/></div>
+        <div class="field"><label>TVA charges</label><input id="fdEditChargesTVA" type="number" step="0.01"/></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="closeModal('fdEditModal')">Annuler</button>
+      <button class="btn btn-dark" style="width:auto;padding:.5rem 1.2rem" onclick="fdSaveEdit()">Enregistrer</button>
+    </div>
+  </div>
+</div>
 <div id="toast" class="toast"></div>
 </body>
 </html>
