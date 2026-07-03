@@ -70,7 +70,7 @@ window.openDriveModal = async function(histId) {
   const entry = window.hist.find(x => x.id === histId);
   if(!entry) return;
   const current = entry.driveUrl || '';
-  const url = prompt('Collez le lien Google Drive du document signé (clic droit sur le fichier → Copier le lien) :', current);
+  const url = prompt('Collez le lien Google Drive du document signé (clic droit → Copier le lien) :', current);
   if(url === null) return; // annulé
   // Save to Firestore
   try {
@@ -154,10 +154,10 @@ window.renderFHist=function(){
 };
 
 // ── FOND DE COMMERCE ──────────────────────────────────────────────
-function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomGerant, emetteur, adrGerant) {
-  nomGerant=nomGerant||'Sasu Pizzeria Fascianella';
-  emetteur=emetteur||'SASU CEVA PIZZA';
-  adrGerant=adrGerant||'83 avenue Jean Camps, 11100 Narbonne';
+function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomG, emetteurG, adrG) {
+  nomG=nomG||'Sasu Pizzeria Fascianella';
+  emetteurG=emetteurG||'SASU CEVA PIZZA';
+  adrG=adrG||'83 avenue Jean Camps, 11100 Narbonne';
   const { jsPDF } = window.jspdf;
   const pdf = new jsPDF({ unit:'mm', format:'a4' });
   const W = 210, ml = 25, mr = 25;
@@ -173,7 +173,7 @@ function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomGerant, emetteur, adrGer
   pdf.setFont('helvetica','bold');
   pdf.setFontSize(16);
   pdf.setTextColor(...DARK);
-  pdf.text(emetteur.toUpperCase(), ml, y);
+  pdf.text(emetteurG.toUpperCase(), ml, y);
   y += 10;
 
   pdf.setFont('helvetica','normal');
@@ -186,11 +186,11 @@ function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomGerant, emetteur, adrGer
   pdf.setFont('helvetica','bold');
   pdf.setFontSize(11);
   pdf.setTextColor(...DARK);
-  pdf.text(nomGerant, ml, y); y+=6;
+  pdf.text(nomG, ml, y); y+=6;
   pdf.setFont('helvetica','normal');
   pdf.setFontSize(10.5);
   pdf.setTextColor(60,60,60);
-  pdf.text(adrGerant, ml, y); y+=12;
+  pdf.text(adrG, ml, y); y+=12;
 
   // Référence
   pdf.setFont('helvetica','bold');
@@ -199,7 +199,7 @@ function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomGerant, emetteur, adrGer
   pdf.text(`REF/ ${mNom} ${annee}`, ml, y); y+=5.5;
   pdf.text('Fond de commerce', ml, y); y+=5.5;
   pdf.setFont('helvetica','normal');
-  pdf.text(adrGerant, ml, y); y+=9;
+  pdf.text(adrG, ml, y); y+=9;
 
   // Numéro de facture
   pdf.setFont('helvetica','bold');
@@ -318,13 +318,13 @@ function updateFdBadge(){
   if(l){
     b.style.display='flex';
     document.getElementById('fdSelNom').textContent=l.nom;
-    const ttc=(l.loyerHT+l.loyerTVA+l.chargesHT+l.chargesTVA);
+    const ttc=(l.loyerHT||0)+(l.loyerTVA||0)+(l.chargesHT||0)+(l.chargesTVA||0);
     document.getElementById('fdSelTTC').textContent=ttc.toFixed(2)+' € TTC';
     document.getElementById('fdLoyerHT').value=l.loyerHT||0;
     document.getElementById('fdLoyerTVA').value=l.loyerTVA||0;
     document.getElementById('fdChargesHT').value=l.chargesHT||0;
     document.getElementById('fdChargesTVA').value=l.chargesTVA||0;
-    fdCalc();
+    window.fdCalc();
   } else b.style.display='none';
 }
 
@@ -1515,7 +1515,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
               <div class="field"><label>Charges HT (&euro;)</label><input id="fdNewChargesHT" type="number" step="0.01" placeholder="166.67"/></div>
               <div class="field"><label>TVA charges (&euro;)</label><input id="fdNewChargesTVA" type="number" step="0.01" placeholder="33.33"/></div>
             </div>
-            <button class="btn btn-gold" style="width:100%" onclick="fdAjouter()">&#10133; Ajouter</button>
+            <button class="btn btn-dark" style="width:100%;margin-top:.5rem" onclick="fdAjouter()">&#10133; Ajouter</button>
           </div>
         </div>
       </aside>
@@ -1523,7 +1523,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
         <div class="gen-panel">
           <div class="gen-head">
             <h2>G&eacute;n&eacute;rer une facture fond</h2>
-            <p>S&eacute;lectionnez un g&eacute;rant, ajustez si besoin.</p>
+            <p>S&eacute;lectionnez un g&eacute;rant puis ajustez les montants.</p>
             <div id="fdSelBadge" class="sel-badge" style="display:none">
               <span class="tag">S&eacute;lectionn&eacute;</span>
               <span id="fdSelNom">-</span><span style="opacity:.4">&middot;</span>
@@ -1537,14 +1537,14 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
             </div>
             <div class="form-section-title">&#127968; Loyer fond de commerce</div>
             <div class="row3" style="margin-bottom:.75rem">
-              <div class="field"><label>HT (&euro;)</label><input id="fdLoyerHT" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
-              <div class="field"><label>TVA (&euro;)</label><input id="fdLoyerTVA" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+              <div class="field"><label>HT (&euro;)</label><input id="fdLoyerHT" type="number" step="0.01" value="0"/></div>
+              <div class="field"><label>TVA (&euro;)</label><input id="fdLoyerTVA" type="number" step="0.01" value="0"/></div>
               <div class="field"><label>TTC (&euro;)</label><input id="fdLoyerTTC" type="number" step="0.01" readonly/></div>
             </div>
             <div class="form-section-title">&#9889; Provision charges</div>
             <div class="row3" style="margin-bottom:.75rem">
-              <div class="field"><label>HT (&euro;)</label><input id="fdChargesHT" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
-              <div class="field"><label>TVA (&euro;)</label><input id="fdChargesTVA" type="number" step="0.01" value="0" oninput="fdCalc()"/></div>
+              <div class="field"><label>HT (&euro;)</label><input id="fdChargesHT" type="number" step="0.01" value="0"/></div>
+              <div class="field"><label>TVA (&euro;)</label><input id="fdChargesTVA" type="number" step="0.01" value="0"/></div>
               <div class="field"><label>TTC (&euro;)</label><input id="fdChargesTTC" type="number" step="0.01" readonly/></div>
             </div>
             <hr/>
@@ -1680,7 +1680,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     <div class="modal-body">
       <input type="hidden" id="fdEditId"/>
       <div class="field"><label>Soci&eacute;t&eacute; g&eacute;rante</label><input id="fdEditNom"/></div>
-      <div class="field"><label>Adresse commerce</label><input id="fdEditAdr"/></div>
+      <div class="field"><label>Adresse</label><input id="fdEditAdr"/></div>
       <div class="field"><label>&Eacute;metteur</label><input id="fdEditEmetteur"/></div>
       <div class="row2">
         <div class="field"><label>Loyer HT</label><input id="fdEditLoyerHT" type="number" step="0.01"/></div>
