@@ -28,6 +28,403 @@ const db   = getFirestore(app);
 
 const UID = "thomas_martin_sci";
 
+const MFRDOC  = ["","janvier","f\u00e9vrier","mars","avril","mai","juin","juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"];
+const MCAPDOC = ["","Janvier","F\u00e9vrier","Mars","Avril","Mai","Juin","Juillet","Ao\u00fbt","Septembre","Octobre","Novembre","D\u00e9cembre"];
+
+// ── UTILS ─────────────────────────────────────────────────────────
+function pad2(n){ return String(n).padStart(2,'0'); }
+function dernJ(m,a){ return new Date(a,m,0).getDate(); }
+function init(nom){ return nom.split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
+function fmtEur(n){ return n.toFixed(2).replace('.',',') + '\u20ac'; }
+
+function nLettres(n){
+  const u=['','un','deux','trois','quatre','cinq','six','sept','huit','neuf','dix','onze','douze','treize','quatorze','quinze','seize','dix-sept','dix-huit','dix-neuf'];
+  const d=['','dix','vingt','trente','quarante','cinquante','soixante','soixante','quatre-vingt','quatre-vingt'];
+  if(n===0)return'z\u00e9ro';
+  let r='';
+  if(n>=1000){const m=Math.floor(n/1000);r+=(m===1?'mille':nLettres(m)+' mille');n%=1000;if(n>0)r+=' ';}
+  if(n>=100){const c=Math.floor(n/100);r+=(c===1?'cent':u[c]+' cent');n%=100;if(n>0)r+=' ';else if(c>1)r+='s';}
+  if(n>=80){const dd=Math.floor(n/10),uu=n%10;if(dd===9)r+='quatre-vingt-'+u[uu+10];else if(dd===8)r+=uu===0?'quatre-vingts':'quatre-vingt-'+u[uu];else{const dz=d[dd];if(uu===0)r+=dz;else if(uu===1&&dd===7)r+='soixante et onze';else if(dd===7)r+='soixante-'+u[uu+10];else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}}
+  else if(n>=20){const dd=Math.floor(n/10),uu=n%10,dz=d[dd];if(uu===0)r+=dz;else if(uu===1)r+=dz+' et un';else r+=dz+'-'+u[uu];}
+  else if(n>0)r+=u[n];
+  return r;
+}
+function loyerLettres(m){
+  const e=Math.floor(m),c=Math.round((m-e)*100);
+  let s=nLettres(e)+' euro'+(e>1?'s':'');
+  if(c>0)s+=' et '+nLettres(c)+' centime'+(c>1?'s':'');
+  return s;
+}
+
+// ── PDF ENGINE ────────────────────────────────────────────────────
+function dlPDF(pdf, filename) {
+  // Fonctionne sur tous les navigateurs y compris Safari iOS
+  const blob = pdf.output('blob');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+// ── PDF QUITTANCE ─────────────────────────────────────────────────
+function genPdfQuittance(loc, mois, annee, jourPaie) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W = 210, ml = 25, mr = 25, cw = W - ml - mr;
+  let y = 20;
+
+  // Couleur principale
+  const BLUE = [18, 166, 208]; // #12A6D0
+
+  // Titre centré
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(18);
+  pdf.setTextColor(...BLUE);
+  pdf.text('QUITTANCE DE LOYER', W/2, y, {align:'center'});
+  y += 9;
+
+  pdf.setFontSize(13);
+  pdf.setTextColor(...BLUE);
+  const mNom = MFRDOC[mois];
+  pdf.text(`Quittance de loyer du mois de ${mNom} ${annee}`, W/2, y, {align:'center'});
+  y += 10;
+
+  // Ligne séparatrice
+  pdf.setDrawColor(...BLUE);
+  pdf.setLineWidth(0.5);
+  pdf.line(ml, y, W-mr, y);
+  y += 8;
+
+  // Adresse de location
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(30,30,30);
+  pdf.text('Adresse de location :', ml, y);
+  y += 6;
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(11);
+  pdf.text(loc.adresse, ml + 4, y);
+  y += 10;
+
+  // Corps du texte
+  const moisStr = pad2(mois);
+  const dj = dernJ(mois, annee);
+  const loyer = parseFloat(loc.loyer);
+  const ltx = loyerLettres(loyer);
+  const texte = `Je soussign\u00e9 MARTIN Thomas, propri\u00e9taire du logement d\u00e9sign\u00e9 ci-dessus, d\u00e9clare avoir re\u00e7u de ${loc.nom} la somme de ${ltx} (en toutes lettres), ${Math.round(loyer)} euros (en chiffres), au titre du paiement du loyer pour la p\u00e9riode de location du 01/${moisStr}/${annee} au ${dj}/${moisStr}/${annee} et lui en donne quittance, sous r\u00e9serve de tous mes droits.`;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(30,30,30);
+  const lignes = pdf.splitTextToSize(texte, cw);
+  pdf.text(lignes, ml, y);
+  y += lignes.length * 5.5 + 8;
+
+  // Ligne
+  pdf.setDrawColor(220,220,220);
+  pdf.setLineWidth(0.3);
+  pdf.line(ml, y, W-mr, y);
+  y += 8;
+
+  // Détail règlement
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(30,30,30);
+  pdf.text('D\u00e9tail du r\u00e8glement :', ml, y);
+  y += 7;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10.5);
+  const jps = pad2(jourPaie);
+  const jf  = pad2(Math.min(jourPaie+8, dj));
+  const lignes2 = [
+    `Loyer : ${Math.round(loyer)} euros`,
+    `Provision pour charges : 0 euros`,
+    `Total : ${Math.round(loyer)} euros`,
+    `Date du paiement : le ${jps}/${moisStr}/${annee}`,
+    `Fait \u00e0 Narbonne, le ${jf}/${moisStr}/${annee}`,
+  ];
+  for (const l of lignes2) {
+    pdf.text(l, ml+4, y);
+    y += 6;
+  }
+  y += 4;
+
+  // Signature
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(10.5);
+  pdf.text('Signature', ml, y);
+  y += 6;
+  pdf.setFont('helvetica','normal');
+  pdf.text('Thomas MARTIN', ml, y);
+  y += 14;
+
+  // Ligne
+  pdf.setDrawColor(220,220,220);
+  pdf.line(ml, y, W-mr, y);
+  y += 7;
+
+  // Mention légale
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(120,120,120);
+  const mention = `Cette quittance annule tous les re\u00e7us qui auraient pu \u00eatre \u00e9tablis pr\u00e9c\u00e9demment en cas de paiement partiel du montant du pr\u00e9sent terme. Elle est \u00e0 conserver pendant trois ans par le locataire (article 7-1 de la loi n\u00b0\u00a089-462 du 6 juillet 1989).`;
+  const mLeg = pdf.splitTextToSize(mention, cw);
+  pdf.text(mLeg, ml, y);
+
+  // Pied de page
+  const yFoot = 280;
+  pdf.setDrawColor(...BLUE);
+  pdf.setLineWidth(0.4);
+  pdf.line(ml, yFoot, W-mr, yFoot);
+  pdf.setFontSize(8.5);
+  pdf.setTextColor(...BLUE);
+  pdf.text('SCI Thomarion  \u2022  83 avenue Jean Camps, 11100 Narbonne  \u2022  06 63 09 74 82  \u2022  Siret : 918 029 810 00010', W/2, yFoot+5, {align:'center'});
+
+  return pdf;
+}
+
+// ── PDF FACTURE LOYER ─────────────────────────────────────────────
+function genPdfLoyer(loc, mois, annee, jour) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W = 210, ml = 25, mr = 25;
+  let y = 22;
+
+  const DARK = [22,33,62]; // #16213e
+
+  // En-tête émetteur
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(...DARK);
+  pdf.text('SCI THOMARION', ml, y);
+  y += 10;
+
+  // Date
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(11);
+  pdf.setTextColor(60,60,60);
+  const mNom = MCAPDOC[mois];
+  pdf.text(`NARBONNE, le ${jour} ${mNom} ${annee}`, ml, y);
+  y += 12;
+
+  // Destinataire
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(...DARK);
+  pdf.text(loc.nom, ml, y); y+=6;
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  pdf.text(loc.adr1, ml, y); y+=5.5;
+  pdf.text(loc.adr2, ml, y); y+=12;
+
+  // Référence
+  const mStr = pad2(mois);
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  pdf.text(`REF/ Loyer ${mNom} ${annee}`, ml, y); y+=5.5;
+  pdf.text(`Local ${loc.local}`, ml, y); y+=5.5;
+  pdf.setFont('helvetica','normal');
+  if(loc.localAdr) { pdf.text(loc.localAdr, ml, y); y+=5.5; }
+  y += 3;
+
+  // Numéro de facture
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(...DARK);
+  const aStr = String(annee);
+  pdf.text(`Facture ${annee}-${mStr}-L${loc.local}`, ml, y);
+  y += 9;
+
+  // Titre loyer
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(30,30,30);
+  pdf.text(`Loyer Mois ${mNom} ${annee}`, ml, y);
+  y += 8;
+
+  // Tableau montants
+  const ht = loc.ht;
+  const tvaV = Math.round(ht*(loc.tva/100)*100)/100;
+  const ttc = Math.round((ht+tvaV)*100)/100;
+  const col1 = 120, col2 = W-mr;
+  const rows = [
+    ['HT', fmtEur(ht)],
+    [`T.V.A ${loc.tva}.00%`, fmtEur(tvaV)],
+    ['TOTAL Loyer TTC', fmtEur(ttc)],
+  ];
+
+  pdf.setLineWidth(0.3);
+  for (let i=0; i<rows.length; i++) {
+    const isTot = i === rows.length-1;
+    if(isTot) {
+      pdf.setFillColor(240,240,245);
+      pdf.rect(ml, y-4.5, col2-ml, 7, 'F');
+      pdf.setFont('helvetica','bold');
+    } else {
+      pdf.setFont('helvetica','normal');
+    }
+    pdf.setFontSize(10.5);
+    pdf.setTextColor(30,30,30);
+    pdf.text(rows[i][0], col1-2, y, {align:'right'});
+    pdf.text(rows[i][1], col2-2, y, {align:'right'});
+    pdf.setDrawColor(200,200,200);
+    pdf.line(ml, y+2, col2, y+2);
+    y += 8;
+  }
+  y += 6;
+
+  // Montant en lettres
+  pdf.setFont('helvetica','italic');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  const ltx = loyerLettres(ttc);
+  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
+  y += 9;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10);
+  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance.\nCordiales salutations.', W-ml-mr);
+  pdf.text(lignes, ml, y);
+  y += lignes.length * 5.5 + 12;
+
+  // Pied émetteur
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(...DARK);
+  pdf.text('SCI Thomarion,', ml, y); y+=5.5;
+  pdf.setFont('helvetica','normal');
+  pdf.text('83 avenue Jean Camps, 11100 Narbonne,', ml, y); y+=5.5;
+  pdf.text('06 63 09 74 82,', ml, y); y+=5.5;
+  pdf.text('N\u00b0 siret : 918 029 810 00010', ml, y);
+
+  return pdf;
+}
+
+// ── PDF FOND DE COMMERCE ──────────────────────────────────────────
+function genPdfFond(mois, annee, lHT, lTV, cHT, cTV) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W = 210, ml = 25, mr = 25;
+  let y = 22;
+
+  const DARK = [22,33,62];
+  const mNom = MCAPDOC[mois];
+  const mStr = pad2(mois);
+  const lTC = lHT+lTV, cTC = cHT+cTV;
+  const tHT = lHT+cHT, tTV = lTV+cTV, tTC = lTC+cTC;
+
+  // En-tête émetteur
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(...DARK);
+  pdf.text('SASU CEVA PIZZA', ml, y);
+  y += 10;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(11);
+  pdf.setTextColor(60,60,60);
+  pdf.text(`NARBONNE, le 1er ${mNom} ${annee}`, ml, y);
+  y += 12;
+
+  // Destinataire
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(...DARK);
+  pdf.text('Sasu Pizzeria Fascianella', ml, y); y+=6;
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  pdf.text('83A avenue Jean Camp  11100 Narbonne', ml, y); y+=12;
+
+  // Référence
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  pdf.text(`REF/ ${mNom} ${annee}`, ml, y); y+=5.5;
+  pdf.text('Fond de commerce', ml, y); y+=5.5;
+  pdf.setFont('helvetica','normal');
+  pdf.text('83 avenue Jean Camps, 11100 Narbonne', ml, y); y+=9;
+
+  // Numéro de facture
+  pdf.setFont('helvetica','bold');
+  pdf.setFontSize(11);
+  pdf.setTextColor(...DARK);
+  pdf.text(`Facture ${annee}-${mStr}-F1`, ml, y);
+  y += 10;
+
+  // Tableau
+  const col1x = ml, col2x = W-mr;
+  const rowH = 7.5;
+  const rows = [
+    [`Loyer Mois ${mNom} ${annee}`, '', true, false],
+    ['HT', fmtEur(lHT), false, false],
+    ['T.V.A 20.00%', fmtEur(lTV), false, false],
+    ['TOTAL Loyer TTC', fmtEur(lTC), false, true],
+    [`Provision sur charges (r\u00e9guler en fin d\u2019ann\u00e9e) HT`, fmtEur(cHT), false, false],
+    ['TVA 20,00%', fmtEur(cTV), false, false],
+    ['TOTAL charge TTC', fmtEur(cTC), false, true],
+    ['Total HT', fmtEur(tHT), false, false],
+    ['Total TVA 20,00%', fmtEur(tTV), false, false],
+    ['Total \u00e0 r\u00e9gler TTC', fmtEur(tTC), false, true],
+  ];
+
+  pdf.setDrawColor(180,180,180);
+  pdf.setLineWidth(0.3);
+  for (const [label, val, isHead, isTot] of rows) {
+    if(isHead) {
+      pdf.setFillColor(22,33,62);
+      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
+      pdf.setFont('helvetica','bold');
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(255,255,255);
+      pdf.text(label, col1x+3, y-0.5);
+    } else if(isTot) {
+      pdf.setFillColor(230,235,245);
+      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
+      pdf.setFont('helvetica','bold');
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(30,30,30);
+      pdf.text(label, col1x+3, y-0.5);
+      pdf.text(val, col2x-3, y-0.5, {align:'right'});
+    } else {
+      pdf.setFont('helvetica','normal');
+      pdf.setFontSize(10.5);
+      pdf.setTextColor(40,40,40);
+      pdf.text(label, col1x+3, y-0.5);
+      pdf.text(val, col2x-3, y-0.5, {align:'right'});
+    }
+    pdf.line(col1x, y+2, col2x, y+2);
+    y += rowH;
+  }
+  y += 8;
+
+  // Montant en lettres
+  pdf.setFont('helvetica','italic');
+  pdf.setFontSize(10.5);
+  pdf.setTextColor(60,60,60);
+  const ltx = loyerLettres(tTC);
+  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
+  y += 8;
+
+  pdf.setFont('helvetica','normal');
+  pdf.setFontSize(10);
+  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance. Cordiales salutations.', W-ml-mr);
+  pdf.text(lignes, ml, y);
+
+  return pdf;
+}
+
+
+window.qLocs=[]; window.fLocs=[]; window.hist=[];
+let qSel=null, fSel=null;
+
+
+
+
 function startListeners(uid) {
   onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
     window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
