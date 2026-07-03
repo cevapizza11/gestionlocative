@@ -26,7 +26,33 @@ const app  = initializeApp(firebaseConfig);
 
 const db   = getFirestore(app);
 
+const UID = "thomas_martin_sci";
+
+function startListeners(uid) {
+  onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
+    window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderQLocs(); renderQHist();
+  });
+  onSnapshot(collection(db, 'users', uid, 'fLocs'), snap => {
+    window.fLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderFLocs(); renderFHist();
+  });
+  onSnapshot(collection(db, 'users', uid, 'fdLocs'), snap => {
+    window.fdLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderFdLocs(); renderFdHist();
+  });
+  onSnapshot(collection(db, 'users', uid, 'hist'), snap => {
+    window.hist = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
+    renderQHist(); renderFHist(); renderFdHist(); renderAllHist(); if(typeof renderBailHist==='function') renderBailHist();
+  });
+}
+
 startListeners(UID);
+
+
+
 
 
 
@@ -70,7 +96,8 @@ window.openDriveModal = async function(histId) {
   const entry = window.hist.find(x => x.id === histId);
   if(!entry) return;
   const current = entry.driveUrl || '';
-  const url = prompt('Collez le lien Google Drive du document signé (clic droit → Copier le lien) :', current);
+  const url = prompt('Collez le lien Google Drive du document signé :
+(Clic droit sur le fichier Drive → Copier le lien)', current);
   if(url === null) return; // annulé
   // Save to Firestore
   try {
@@ -154,144 +181,6 @@ window.renderFHist=function(){
 };
 
 // ── FOND DE COMMERCE ──────────────────────────────────────────────
-function genPdfFond(mois, annee, lHT, lTV, cHT, cTV, nomG, emetteurG, adrG) {
-  nomG=nomG||'Sasu Pizzeria Fascianella';
-  emetteurG=emetteurG||'SASU CEVA PIZZA';
-  adrG=adrG||'83 avenue Jean Camps, 11100 Narbonne';
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit:'mm', format:'a4' });
-  const W = 210, ml = 25, mr = 25;
-  let y = 22;
-
-  const DARK = [22,33,62];
-  const mNom = MCAPDOC[mois];
-  const mStr = pad2(mois);
-  const lTC = lHT+lTV, cTC = cHT+cTV;
-  const tHT = lHT+cHT, tTV = lTV+cTV, tTC = lTC+cTC;
-
-  // En-tête émetteur
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(16);
-  pdf.setTextColor(...DARK);
-  pdf.text(emetteurG.toUpperCase(), ml, y);
-  y += 10;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(11);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`NARBONNE, le 1er ${mNom} ${annee}`, ml, y);
-  y += 12;
-
-  // Destinataire
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text(nomG, ml, y); y+=6;
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(adrG, ml, y); y+=12;
-
-  // Référence
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  pdf.text(`REF/ ${mNom} ${annee}`, ml, y); y+=5.5;
-  pdf.text('Fond de commerce', ml, y); y+=5.5;
-  pdf.setFont('helvetica','normal');
-  pdf.text(adrG, ml, y); y+=9;
-
-  // Numéro de facture
-  pdf.setFont('helvetica','bold');
-  pdf.setFontSize(11);
-  pdf.setTextColor(...DARK);
-  pdf.text(`Facture ${annee}-${mStr}-F1`, ml, y);
-  y += 10;
-
-  // Tableau
-  const col1x = ml, col2x = W-mr;
-  const rowH = 7.5;
-  const rows = [
-    [`Loyer Mois ${mNom} ${annee}`, '', true, false],
-    ['HT', fmtEur(lHT), false, false],
-    ['T.V.A 20.00%', fmtEur(lTV), false, false],
-    ['TOTAL Loyer TTC', fmtEur(lTC), false, true],
-    [`Provision sur charges (r\u00e9guler en fin d\u2019ann\u00e9e) HT`, fmtEur(cHT), false, false],
-    ['TVA 20,00%', fmtEur(cTV), false, false],
-    ['TOTAL charge TTC', fmtEur(cTC), false, true],
-    ['Total HT', fmtEur(tHT), false, false],
-    ['Total TVA 20,00%', fmtEur(tTV), false, false],
-    ['Total \u00e0 r\u00e9gler TTC', fmtEur(tTC), false, true],
-  ];
-
-  pdf.setDrawColor(180,180,180);
-  pdf.setLineWidth(0.3);
-  for (const [label, val, isHead, isTot] of rows) {
-    if(isHead) {
-      pdf.setFillColor(22,33,62);
-      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(255,255,255);
-      pdf.text(label, col1x+3, y-0.5);
-    } else if(isTot) {
-      pdf.setFillColor(230,235,245);
-      pdf.rect(col1x, y-5.5, col2x-col1x, rowH, 'F');
-      pdf.setFont('helvetica','bold');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(30,30,30);
-      pdf.text(label, col1x+3, y-0.5);
-      pdf.text(val, col2x-3, y-0.5, {align:'right'});
-    } else {
-      pdf.setFont('helvetica','normal');
-      pdf.setFontSize(10.5);
-      pdf.setTextColor(40,40,40);
-      pdf.text(label, col1x+3, y-0.5);
-      pdf.text(val, col2x-3, y-0.5, {align:'right'});
-    }
-    pdf.line(col1x, y+2, col2x, y+2);
-    y += rowH;
-  }
-  y += 8;
-
-  // Montant en lettres
-  pdf.setFont('helvetica','italic');
-  pdf.setFontSize(10.5);
-  pdf.setTextColor(60,60,60);
-  const ltx = loyerLettres(tTC);
-  pdf.text(`Valeur en votre aimable r\u00e8glement de ${ltx}.`, ml, y);
-  y += 8;
-
-  pdf.setFont('helvetica','normal');
-  pdf.setFontSize(10);
-  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen \u00e0 votre convenance. Cordiales salutations.', W-ml-mr);
-  pdf.text(lignes, ml, y);
-
-  return pdf;
-}
-
-// ── ETAT ──────────────────────────────────────────────────────────
-window.qLocs=[]; window.fLocs=[]; window.hist=[];
-let qSel=null, fSel=null;
-
-async function dbSetL(col,id,data){await dbSet(col,id,data);}
-
-// ── QUITTANCES ────────────────────────────────────────────────────
-window.qAjouter = async function(){
-  const nom=document.getElementById('qNewNom').value.trim();
-  const adr=document.getElementById('qNewAdresse').value.trim();
-  const loyer=document.getElementById('qNewLoyer').value.trim();
-  if(!nom||!adr||!loyer){toast('Remplissez tous les champs.','err');return;}
-  const id=Date.now().toString();
-  await dbSet('qLocs',id,{nom,adresse:adr,loyer:parseFloat(loyer)});
-  document.getElementById('qNewNom').value='';
-  document.getElementById('qNewAdresse').value='';
-  document.getElementById('qNewLoyer').value='';
-  toast(nom+' ajout\u00e9(e) !','ok');
-  qSel=id; updateQBadge();
-};
-window.qSelLoc=function(id){qSel=id;renderQLocs();updateQBadge();};
-
 window.fdLocs=[]; let fdSel=null;
 
 window.fdAjouter=async function(){
@@ -308,9 +197,7 @@ window.fdAjouter=async function(){
   ['fdNewNom','fdNewAdr','fdNewEmetteur','fdNewLoyerHT','fdNewLoyerTVA','fdNewChargesHT','fdNewChargesTVA'].forEach(i=>document.getElementById(i).value='');
   toast(nom+' ajouté !','ok'); fdSel=id; updateFdBadge();
 };
-
 window.fdSelLoc=function(id){fdSel=id;renderFdLocs();updateFdBadge();};
-
 function updateFdBadge(){
   const l=window.fdLocs.find(x=>x.id===fdSel);
   document.getElementById('fdGenBtn').disabled=!l;
@@ -327,7 +214,6 @@ function updateFdBadge(){
     window.fdCalc();
   } else b.style.display='none';
 }
-
 window.fdEditOpen=function(id,e){
   e.stopPropagation();
   const l=window.fdLocs.find(x=>x.id===id);if(!l)return;
@@ -341,46 +227,34 @@ window.fdEditOpen=function(id,e){
   document.getElementById('fdEditChargesTVA').value=l.chargesTVA||0;
   document.getElementById('fdEditModal').classList.add('open');
 };
-
 window.fdSaveEdit=async function(){
   const id=document.getElementById('fdEditId').value;
   const nom=document.getElementById('fdEditNom').value.trim();
   const adr=document.getElementById('fdEditAdr').value.trim();
   if(!nom||!adr){toast('Champs manquants','err');return;}
-  await dbSet('fdLocs',id,{nom,adr,
-    emetteur:document.getElementById('fdEditEmetteur').value.trim(),
+  await dbSet('fdLocs',id,{nom,adr,emetteur:document.getElementById('fdEditEmetteur').value.trim(),
     loyerHT:+document.getElementById('fdEditLoyerHT').value,
     loyerTVA:+document.getElementById('fdEditLoyerTVA').value,
     chargesHT:+document.getElementById('fdEditChargesHT').value,
-    chargesTVA:+document.getElementById('fdEditChargesTVA').value
-  });
-  closeModal('fdEditModal');
-  if(fdSel===id)updateFdBadge();
-  toast('Modifié.','ok');
+    chargesTVA:+document.getElementById('fdEditChargesTVA').value});
+  closeModal('fdEditModal');if(fdSel===id)updateFdBadge();toast('Modifié.','ok');
 };
-
 window.fdDelLoc=async function(id,e){
   e.stopPropagation();
   const l=window.fdLocs.find(x=>x.id===id);
   if(!confirm('Supprimer '+l.nom+' ?'))return;
   await dbDel('fdLocs',id);
-  if(fdSel===id){fdSel=null;updateFdBadge();}
-  toast('Supprimé.','ok');
+  if(fdSel===id){fdSel=null;updateFdBadge();}toast('Supprimé.','ok');
 };
-
 window.renderFdLocs=function(){
   const c=document.getElementById('fdLocList');
   if(!window.fdLocs.length){c.innerHTML='<div class="empty"><div class="empty-icon">&#129309;</div>Aucun gérant.</div>';return;}
   c.innerHTML=window.fdLocs.map(l=>`<div class="loc-item${l.id===fdSel?' sel':''}" onclick="fdSelLoc('${l.id}')">
     <div class="loc-av">${init(l.nom)}</div>
     <div class="loc-info"><div class="loc-nom">${l.nom}</div><div class="loc-sub">${l.emetteur||''} · ${((l.loyerHT||0)+(l.loyerTVA||0)+(l.chargesHT||0)+(l.chargesTVA||0)).toFixed(2)} € TTC</div></div>
-    <div class="loc-actions">
-      <button class="btn-edit-sm" onclick="fdEditOpen('${l.id}',event)">&#9998;</button>
-      <button class="btn-danger-sm" onclick="fdDelLoc('${l.id}',event)">&#128465;</button>
-    </div>
+    <div class="loc-actions"><button class="btn-edit-sm" onclick="fdEditOpen('${l.id}',event)">&#9998;</button><button class="btn-danger-sm" onclick="fdDelLoc('${l.id}',event)">&#128465;</button></div>
   </div>`).join('');
 };
-
 window.fdCalc=function(){
   const lHT=+document.getElementById('fdLoyerHT').value||0;
   const lTV=+document.getElementById('fdLoyerTVA').value||0;
@@ -393,7 +267,6 @@ window.fdCalc=function(){
   document.getElementById('fdTotalTVA').value=tTV.toFixed(2);
   document.getElementById('fdTotalTTC').value=tTC.toFixed(2);
 };
-
 window.genFond=async function(){
   if(!fdSel)return;
   const loc=window.fdLocs.find(l=>l.id===fdSel);if(!loc)return;
@@ -410,11 +283,9 @@ window.genFond=async function(){
     const fn=`facture_fond_${loc.nom.replace(/\s+/g,'_')}_${mNom}_${annee}.pdf`;
     dlPDF(pdf,fn);
     await dbAddHist({type:'Fond de commerce',qui:loc.nom,periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' € TTC',fichier:fn});
-    renderFdHist();
-    toast('Facture fond téléchargée !','ok');
+    renderFdHist();toast('Facture fond téléchargée !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
-
 window.renderFdHist=function(){
   const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
   const c=document.getElementById('fdHistTable');
