@@ -96,8 +96,7 @@ window.openDriveModal = async function(histId) {
   const entry = window.hist.find(x => x.id === histId);
   if(!entry) return;
   const current = entry.driveUrl || '';
-  const url = prompt('Collez le lien Google Drive du document signé :
-(Clic droit sur le fichier Drive → Copier le lien)', current);
+  const url = prompt('Collez le lien Google Drive (clic droit sur le fichier → Copier le lien) :', current);
   if(url === null) return; // annulé
   // Save to Firestore
   try {
