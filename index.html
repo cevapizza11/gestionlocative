@@ -562,11 +562,29 @@ function driveBtn(x) {
   return `<button class="btn-edit-sm" onclick="openDriveModal('${x.id}')" title="Lier un document signé">&#128206; Lier</button>`;
 }
 
+
+window.supprimerHist = async function(id) {
+  if(!confirm('Supprimer ce document de l\'historique ?')) return;
+  try {
+    await deleteDoc(doc(db, 'users', uid(), 'hist', id));
+    toast('Document supprimé.', 'ok');
+  } catch(e) { toast('Erreur : ' + e.message, 'err'); }
+};
+
+window.regenHist = async function(id) {
+  const entry = window.hist.find(x => x.id === id);
+  if(!entry) return;
+  if(entry.type === 'Bail' && entry.bailData) {
+    retelechargerBail(id);
+  } else {
+    toast('Retéléchargement disponible uniquement pour les baux avec données sauvegardées.', 'err');
+  }
+};
 window.renderQHist=function(){
   const h=window.hist.filter(x=>x.type==='Quittance').slice(0,10);
   const c=document.getElementById('qHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Période</th><th>Montant</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td><button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FACTURES LOYER ────────────────────────────────────────────────
@@ -625,7 +643,7 @@ window.renderFHist=function(){
   const h=window.hist.filter(x=>x.type==='Facture loyer').slice(0,10);
   const c=document.getElementById('fHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td><button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FOND DE COMMEwindow.fdLocs=[];
@@ -736,7 +754,7 @@ window.renderFdHist=function(){
   const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
   const c=document.getElementById('fdHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td><button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
@@ -744,7 +762,7 @@ window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
   const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th>Signé</th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.type==='Bail'&&x.bailData?`<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HELPERS ───────────────────────────────────────────────────────
@@ -769,14 +787,15 @@ window.renderBailHist = function() {
   const h = window.hist.filter(x => x.type === 'Bail').slice(0,10);
   const c = document.getElementById('bailHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr>
-    <th>Locataire</th><th>Adresse</th><th>Loyer</th><th>Généré le</th><th></th>
-  </tr></thead><tbody>${h.map((x,i)=>`<tr>
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Adresse</th><th>Loyer</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr>
     <td><strong>${x.qui}</strong></td>
     <td>${x.periode}</td>
     <td>${x.montant}</td>
     <td style="color:var(--muted)">${x.date||''}</td>
-    <td style="white-space:nowrap">${x.bailData ? `<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger" style="margin-right:3px">&#11015; PDF</button>` : ''}${driveBtn(x)}</td>
+    <td style="white-space:nowrap">
+      ${x.bailData?`<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger" style="margin-right:3px">&#11015; PDF</button>`:''}
+      <button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>
+    </td>
   </tr>`).join('')}</tbody></table>`;
 };
 
@@ -1711,7 +1730,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.04/07/2026 07:07</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.04/07/2026 07:34</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
