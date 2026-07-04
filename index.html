@@ -535,7 +535,7 @@ window.genQuittance=async function(){
     const pdf=genPdfQuittance(loc,mois,annee,jp);
     const fn=`quittance_${loc.nom.replace(/\s+/g,'_')}_${MFRDOC[mois]}_${annee}.pdf`;
     dlPDF(pdf,fn);
-    await dbAddHist({type:'Quittance',qui:loc.nom,periode:`${MCAPDOC[mois]} ${annee}`,montant:parseFloat(loc.loyer)+' \u20ac',fichier:fn});
+    await dbAddHist({type:'Quittance',qui:loc.nom,periode:`${MCAPDOC[mois]} ${annee}`,montant:parseFloat(loc.loyer)+' \u20ac',fichier:fn,qData:{locId:loc.id,mois,annee,jp}});
     toast('Quittance t\u00e9l\u00e9charg\u00e9e !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
@@ -563,6 +563,51 @@ function driveBtn(x) {
 }
 
 
+
+window.regenHist = async function(id) {
+  const x = window.hist.find(h => h.id === id);
+  if(!x) return;
+
+  if(x.type === 'Bail' && x.bailData) {
+    retelechargerBail(id);
+    return;
+  }
+
+  if(x.type === 'Quittance' && x.qData) {
+    const loc = window.qLocs.find(l => l.id === x.qData.locId);
+    if(!loc){ toast('Locataire introuvable','err'); return; }
+    try {
+      const pdf = genPdfQuittance(loc, x.qData.mois, x.qData.annee, x.qData.jp);
+      dlPDF(pdf, x.fichier || ('quittance_'+loc.nom.replace(/\s+/g,'_')+'.pdf'));
+      toast('Quittance retéléchargée !','ok');
+    } catch(e){ toast('Erreur : '+e.message,'err'); }
+    return;
+  }
+
+  if(x.type === 'Facture loyer' && x.fData) {
+    const loc = window.fLocs.find(l => l.id === x.fData.locId);
+    if(!loc){ toast('Locataire introuvable','err'); return; }
+    try {
+      const pdf = genPdfLoyer(loc, x.fData.mois, x.fData.annee, x.fData.jour);
+      dlPDF(pdf, x.fichier || ('facture_loyer_'+loc.nom.replace(/\s+/g,'_')+'.pdf'));
+      toast('Facture retéléchargée !','ok');
+    } catch(e){ toast('Erreur : '+e.message,'err'); }
+    return;
+  }
+
+  if(x.type === 'Fond de commerce' && x.fdData) {
+    const loc = window.fdLocs.find(l => l.id === x.fdData.locId);
+    if(!loc){ toast('Gérant introuvable','err'); return; }
+    try {
+      const pdf = genPdfFond(x.fdData.mois,x.fdData.annee,x.fdData.lHT,x.fdData.lTV,x.fdData.cHT,x.fdData.cTV,loc.nom,loc.emetteur,loc.adr);
+      dlPDF(pdf, x.fichier || ('facture_fond_'+loc.nom.replace(/\s+/g,'_')+'.pdf'));
+      toast('Facture fond retéléchargée !','ok');
+    } catch(e){ toast('Erreur : '+e.message,'err'); }
+    return;
+  }
+
+  toast('Données insuffisantes pour regénérer ce document.','err');
+};
 window.supprimerHist = async function(id) {
   if(!confirm('Supprimer ce document de l\'historique ?')) return;
   try {
@@ -584,7 +629,7 @@ window.renderQHist=function(){
   const h=window.hist.filter(x=>x.type==='Quittance').slice(0,10);
   const c=document.getElementById('qHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune quittance.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td><button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-blue">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.qData?`<button class="btn-edit-sm" onclick="regenHist('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FACTURES LOYER ────────────────────────────────────────────────
@@ -635,7 +680,7 @@ window.genLoyer=async function(){
     const fn=`facture_loyer_${loc.nom.replace(/\s+/g,'_')}_${mNom}_${annee}.pdf`;
     dlPDF(pdf,fn);
     const ht=loc.ht,tvaV=Math.round(ht*(loc.tva/100)*100)/100,ttc=Math.round((ht+tvaV)*100)/100;
-    await dbAddHist({type:'Facture loyer',qui:loc.nom,periode:`${mNom} ${annee}`,montant:ttc+' \u20ac TTC',fichier:fn});
+    await dbAddHist({type:'Facture loyer',qui:loc.nom,periode:`${mNom} ${annee}`,montant:ttc+' \u20ac TTC',fichier:fn,fData:{locId:loc.id,mois,annee,jour}});
     toast('Facture t\u00e9l\u00e9charg\u00e9e !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
@@ -643,7 +688,7 @@ window.renderFHist=function(){
   const h=window.hist.filter(x=>x.type==='Facture loyer').slice(0,10);
   const c=document.getElementById('fHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td><button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.fData?`<button class="btn-edit-sm" onclick="regenHist('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FOND DE COMMEwindow.fdLocs=[];
@@ -746,7 +791,7 @@ window.genFond=async function(){
     const mNom=MCAPDOC[mois];
     const fn=`facture_fond_${loc.nom.replace(/\s+/g,'_')}_${mNom}_${annee}.pdf`;
     dlPDF(pdf,fn);
-    await dbAddHist({type:'Fond de commerce',qui:loc.nom,periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' € TTC',fichier:fn});
+    await dbAddHist({type:'Fond de commerce',qui:loc.nom,periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' € TTC',fichier:fn,fdData:{locId:loc.id,mois,annee,lHT,lTV,cHT,cTV}});
     renderFdHist();toast('Facture fond téléchargée !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
 };
@@ -754,7 +799,7 @@ window.renderFdHist=function(){
   const h=window.hist.filter(x=>x.type==='Fond de commerce').slice(0,8);
   const c=document.getElementById('fdHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td><button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.fdData?`<button class="btn-edit-sm" onclick="regenHist('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
@@ -762,7 +807,8 @@ window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
   const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
-  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.type==='Bail'&&x.bailData?`<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button></td></tr>`).join('')}</tbody></table>`;
+  const hasData=x=>(x.type==='Bail'&&x.bailData)||(x.type==='Quittance'&&x.qData)||(x.type==='Facture loyer'&&x.fData)||(x.type==='Fond de commerce'&&x.fdData);
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${hasData(x)?`<button class="btn-edit-sm" onclick="${x.type==='Bail'?`retelechargerBail('${x.id}')`:`regenHist('${x.id}')`}" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HELPERS ───────────────────────────────────────────────────────
@@ -788,13 +834,12 @@ window.renderBailHist = function() {
   const c = document.getElementById('bailHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div>';return;}
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Adresse</th><th>Loyer</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr>
-    <td><strong>${x.qui}</strong></td>
-    <td>${x.periode}</td>
-    <td>${x.montant}</td>
+    <td><strong>${x.qui}</strong></td><td>${x.periode}</td><td>${x.montant}</td>
     <td style="color:var(--muted)">${x.date||''}</td>
     <td style="white-space:nowrap">
-      ${x.bailData?`<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" title="Retélécharger" style="margin-right:3px">&#11015; PDF</button>`:''}
+      ${x.bailData?`<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015; PDF</button>`:''}
       <button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>
+      ${driveBtn(x)}
     </td>
   </tr>`).join('')}</tbody></table>`;
 };
@@ -1730,7 +1775,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.04/07/2026 07:34</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.04/07/2026 07:54</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
