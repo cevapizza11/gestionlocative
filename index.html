@@ -737,7 +737,6 @@ window.renderFdHist=function(){
   const c=document.getElementById('fdHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Gérant</th><th>Période</th><th>Total TTC</th><th>Généré le</th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui||''}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td></tr>`).join('')}</tbody></table>`;
-};eBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── HISTORIQUE GLOBAL ─────────────────────────────────────────────
