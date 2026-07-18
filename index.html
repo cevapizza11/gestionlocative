@@ -806,7 +806,7 @@ window.renderFdHist=function(){
 window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
-  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue'};
+  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue','Bail commercial':'badge-green'};
   const hasData=x=>(x.type==='Bail'&&x.bailData)||(x.type==='Quittance'&&x.qData)||(x.type==='Facture loyer'&&x.fData)||(x.type==='Fond de commerce'&&x.fdData);
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${hasData(x)?`<button class="btn-edit-sm" onclick="${x.type==='Bail'?`retelechargerBail('${x.id}')`:`regenHist('${x.id}')`}" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
@@ -822,6 +822,256 @@ window.showPage=function(id,btn){
 window.closeModal=function(id){document.getElementById(id).classList.remove('open');};
 
 // ── BAIL ──────────────────────────────────────────────
+
+// ── BAIL COMMERCIAL ───────────────────────────────────────────────
+window.switchBailType = function(type) {
+  document.getElementById('formBailHab').style.display = type==='hab' ? 'block' : 'none';
+  document.getElementById('formBailCom').style.display = type==='com' ? 'block' : 'none';
+  document.getElementById('btnBailHab').style.background = type==='hab' ? 'var(--accent)' : 'var(--blue)';
+  document.getElementById('btnBailCom').style.background = type==='com' ? 'var(--accent)' : 'var(--blue)';
+};
+
+window.comCalc = function() {
+  const ht  = +document.getElementById('comLoyerHT').value||0;
+  const tva = +document.getElementById('comTVA').value||20;
+  const ttc = Math.round(ht*(1+tva/100)*100)/100;
+  document.getElementById('comLoyerTTC').value = ttc.toFixed(2);
+  document.getElementById('comLoyerMensuel').value = (ht/12).toFixed(2);
+  document.getElementById('comLoyerMensuelTTC').value = (ttc/12).toFixed(2);
+  if(ht) document.getElementById('comLoyerLettres').value = loyerLettres(ht);
+  // Charges TVA
+  const cHT = +document.getElementById('comChargesHT').value||0;
+  document.getElementById('comChargesTTC').value = Math.round(cHT*(1+tva/100)*100)/100;
+};
+
+window.comCalcDepot = function() {
+  const d = +document.getElementById('comDepot').value||0;
+  if(d) document.getElementById('comDepotLettres').value = loyerLettres(d);
+};
+
+window.comCalcTaxe = function() {
+  const total    = +document.getElementById('comTaxeFonciere').value||0;
+  const tantLocal = +document.getElementById('comTantieme').value||0;
+  const tantTotal = +document.getElementById('comTantiemesTotaux').value||1000;
+  if(tantTotal > 0) {
+    const qp = Math.round(total * tantLocal / tantTotal * 100) / 100;
+    document.getElementById('comTaxeQuotePart').value = qp.toFixed(2);
+  }
+};
+
+window.genBailCom = async function() {
+  const societe     = document.getElementById('comSociete').value.trim();
+  const societeAdr  = document.getElementById('comSocieteAdr').value.trim();
+  const representant= document.getElementById('comRepresentant').value.trim();
+  const naissance   = document.getElementById('comNaissance').value.trim();
+  const naissanceLieu= document.getElementById('comNaissanceLieu').value.trim();
+  const adresse     = document.getElementById('comAdresse').value.trim();
+  const surface     = document.getElementById('comSurface').value;
+  const composition = document.getElementById('comComposition').value.trim();
+  const destination = document.getElementById('comDestination').value.trim();
+  const lot         = document.getElementById('comLot').value.trim();
+  const tantieme    = document.getElementById('comTantieme').value;
+  const tantiemeTotal = document.getElementById('comTantiemesTotaux').value;
+  const dateDebut   = document.getElementById('comDateDebut').value;
+  const duree       = +document.getElementById('comDuree').value;
+  const loyerHT     = +document.getElementById('comLoyerHT').value;
+  const tva         = +document.getElementById('comTVA').value||20;
+  const loyerTTC    = +document.getElementById('comLoyerTTC').value;
+  const loyerL      = document.getElementById('comLoyerLettres').value.trim() || loyerLettres(loyerHT);
+  const chargesHT   = +document.getElementById('comChargesHT').value||0;
+  const chargesTTC  = +document.getElementById('comChargesTTC').value||0;
+  const depot       = +document.getElementById('comDepot').value;
+  const depotL      = document.getElementById('comDepotLettres').value.trim() || loyerLettres(depot);
+  const taxeFonciere= +document.getElementById('comTaxeFonciere').value||0;
+  const taxeQP      = +document.getElementById('comTaxeQuotePart').value||0;
+  const ilc         = document.getElementById('comILC').value.trim();
+  const ilcTrim     = document.getElementById('comILCTrim').value.trim();
+
+  if(!societe || !adresse || !dateDebut || !loyerHT) {
+    toast('Remplissez les champs obligatoires (société, adresse, date, loyer).','err'); return;
+  }
+
+  const dD = new Date(dateDebut);
+  const dF = new Date(dateDebut);
+  dF.setFullYear(dF.getFullYear() + duree);
+  const fd = d => pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+'/'+d.getFullYear();
+  const dateD = fd(dD), dateF = fd(dF), today = fd(new Date());
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W=210, ml=20, mr=20, cw=W-ml-mr;
+  let y=18;
+  const DARK=[22,33,62], GREY=[60,60,60], LGREY=[120,120,120];
+
+  const p = (txt, bold, sz, col, center) => {
+    pdf.setFont('helvetica', bold?'bold':'normal');
+    pdf.setFontSize(sz||10);
+    pdf.setTextColor(...(col||GREY));
+    const lines = pdf.splitTextToSize(txt, cw);
+    pdf.text(lines, center?W/2:ml, y, center?{align:'center'}:{});
+    y += lines.length*(sz||10)*0.44+1.5;
+  };
+  const sec = (txt) => {
+    chk(15); y+=4;
+    pdf.setFillColor(...DARK); pdf.rect(ml,y-5,cw,8,'F');
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(255,255,255);
+    pdf.text(txt, ml+3, y); y+=7;
+  };
+  const ssec = (txt) => {
+    chk(10); y+=2;
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5); pdf.setTextColor(...DARK);
+    pdf.text(txt, ml, y); y+=5;
+    pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,y,ml+cw*0.4,y); y+=4;
+  };
+  const hr = () => {
+    pdf.setDrawColor(200,200,200); pdf.setLineWidth(0.3); pdf.line(ml,y,W-mr,y); y+=5;
+  };
+  const chk = (n) => {
+    if(y+(n||20)>283){ pdf.addPage(); y=18; }
+  };
+  const fi = (lbl, val) => {
+    pdf.setFont('helvetica','bold'); pdf.setFontSize(9.5); pdf.setTextColor(...GREY);
+    pdf.text(lbl, ml+5, y);
+    pdf.setFont('helvetica','normal');
+    const lines = pdf.splitTextToSize(val||'', cw-55);
+    pdf.text(lines, ml+55, y);
+    y += Math.max(lines.length,1)*5;
+  };
+
+  // ── TITRE ──
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(22); pdf.setTextColor(...DARK);
+  pdf.text('Contrat de bail commercial', W/2, y, {align:'center'}); y+=9;
+  pdf.setFont('helvetica','italic'); pdf.setFontSize(13); pdf.setTextColor(...LGREY);
+  pdf.text('Bail de '+duree+' ans', W/2, y, {align:'center'}); y+=8;
+  pdf.setDrawColor(...DARK); pdf.setLineWidth(0.6); pdf.line(ml,y,W-mr,y); y+=8;
+
+  // ── ENTRE LES SOUSSIGNÉS ──
+  p('ENTRE LES SOUSSIGNÉS', true, 11, DARK);
+  y+=3;
+  p('SCI THOMARION, domiciliée au 14 rue de la Clape, 11110 Vinassan, représentée par son gérant Thomas MARTIN né le 03/09/1980 à Villeneuve Saint George (94)', false, 10, GREY, false);
+  p('Ci-après dénommé(e) le Bailleur', false, 10, LGREY, false);
+  y+=3; p('Et', false, 10, GREY, false); y+=3;
+  p(societe+(societeAdr?', domicilié au '+societeAdr:'')+', représenté par son président '+representant+(naissance?' né le '+naissance:'')+' à '+(naissanceLieu||''), false, 10, GREY, false);
+  p('Ci-après dénommé(e) le Preneur', false, 10, LGREY, false);
+  y+=5;
+  p('IL A ÉTÉ CONVENU CE QUI SUIT', true, 11, DARK);
+  p('Le Bailleur loue au Preneur le Local ci-après désigné aux conditions prévues par le présent contrat soumis aux articles L. 145-1 et suivants du code de commerce et aux textes pris pour leur application.', false, 9.5, GREY, false);
+  hr(); chk();
+
+  // ── I. DÉSIGNATION DES LOCAUX ──
+  sec('I - DESIGNATION, CONSISTANCE ET DESTINATION DES LOCAUX');
+  ssec('Désignation :');
+  p('Par les présentes, le Bailleur donne en location au Preneur le local ci-après désigné :', false, 9.5, GREY);
+  if(composition) {
+    composition.split('
+').forEach(line => {
+      if(line.trim()) p('    - '+line.trim(), false, 9.5, GREY);
+    });
+  } else {
+    p('    - Un local commercial de '+surface+' m² situé au '+adresse, false, 9.5, GREY);
+  }
+  y+=3;
+  p('Ces lieux seront ci-après dénommés « le local ».',false,9.5,GREY);
+  y+=3;
+  if(lot) { fi('Lot(s) n° :', lot+' représentant '+tantieme+' millièmes des parties communes sur '+tantiemeTotal+' millièmes totaux de l'immeuble'); }
+  y+=3;
+  ssec('Destination des locaux :');
+  p('Le local loué devra être affecté à l'usage commercial ci-après désigné, à l'exclusion de tout autre :', false, 9.5, GREY);
+  y+=2;
+  p('    '+destination, true, 9.5, DARK);
+  hr(); chk();
+
+  // ── II. ETAT DES LIEUX ──
+  sec('II - ETAT DES LIEUX ET REMISE DES CLEFS');
+  p('Un état des lieux sera réalisé de manière contradictoire lors de l'entrée en jouissance du Locataire par document séparé établi en autant d'exemplaires qu'il y a de parties au contrat, soit 2 exemplaires. Une copie de l'état des lieux sera annexée à chacun des exemplaires du présent contrat.', false, 9.5, GREY);
+  hr(); chk();
+
+  // ── III. CONDITIONS PARTICULIÈRES ──
+  sec('III - CONDITIONS PARTICULIERES DE LA LOCATION');
+  ssec('Durée :');
+  p('Le présent bail est consenti et accepté pour une durée de '+duree+' années entières et consécutives à compter du '+dateD+', soit jusqu'au '+dateF+'.', false, 9.5, GREY);
+  if(duree===9) p('Toutefois, le Preneur pourra y mettre fin, par anticipation, à l'expiration de chacune des deux périodes triennales en prévenant le Bailleur au moins six mois à l'avance, par acte extrajudiciaire.', false, 9.5, GREY);
+  y+=3;
+  ssec('Loyer – TVA :');
+  p('Le présent bail est consenti et accepté moyennant un loyer annuel hors charges et hors taxes de :', false, 9.5, GREY);
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5); pdf.setTextColor(...DARK);
+  pdf.text(loyerL.toUpperCase()+'  ('+loyerHT.toLocaleString('fr-FR')+' €) HT, soit '+loyerTTC.toLocaleString('fr-FR')+'€ TTC', ml+5, y); y+=7;
+  p('que le Preneur s'oblige à payer par mois, à terme d'avance, au domicile du Bailleur ou en tout autre lieu indiqué par lui.', false, 9.5, GREY);
+  p('Le loyer est assujetti à la TVA au taux de '+tva+'% en vigueur à sa date d'exigibilité, à la charge du Preneur.', false, 9.5, GREY);
+  y+=3;
+  ssec('Révision du loyer :');
+  p('Le loyer sera indexé automatiquement en fonction de la variation de l'Indice des Loyers Commerciaux (ILC) publié par l'INSEE. La révision interviendra chaque année à la date anniversaire du présent bail.'+(ilc?' L'indice de base retenu est celui du '+ilcTrim+', soit '+ilc+'.':''), false, 9.5, GREY);
+  y+=3;
+  ssec('Impôts et taxes :');
+  p('Le Preneur acquittera ses contributions personnelles : taxe professionnelle, et généralement tous impôts et taxes auxquels il est assujetti personnellement.', false, 9.5, GREY);
+  if(taxeFonciere > 0) {
+    p('Le Preneur remboursera au Bailleur la quote-part de taxe foncière correspondant au(x) lot(s) loué(s), soit '+tantieme+' millièmes sur '+tantiemeTotal+' millièmes totaux de l'immeuble, représentant environ '+taxeQP.toLocaleString('fr-FR')+'€ par an (sur la base d'une taxe foncière totale de '+taxeFonciere.toLocaleString('fr-FR')+'€). Ce montant sera régularisé chaque année sur présentation de l'avis de taxe foncière.', false, 9.5, GREY);
+  }
+  y+=3;
+  ssec('Provision pour charges :');
+  p('Le Preneur versera, à chaque terme de loyer, en sus du loyer, une provision pour charges de '+chargesHT.toLocaleString('fr-FR')+'€ HT, soit '+chargesTTC.toLocaleString('fr-FR')+'€ TTC par mois. Il sera procédé à une régularisation annuelle sur présentation des justificatifs.', false, 9.5, GREY);
+  y+=3;
+  ssec('Dépôt de garantie :');
+  p('Pour garantir l'exécution de ses obligations, le Preneur verse au Bailleur la somme de '+depotL+' ('+depot.toLocaleString('fr-FR')+' €) à titre de dépôt de garantie. Cette somme sera restituée à l'expiration du bail, déduction faite de toute somme dont le Preneur pourrait être débiteur.', false, 9.5, GREY);
+  hr(); chk();
+
+  // ── IV. CONDITIONS GÉNÉRALES ──
+  sec('IV - CONDITIONS GENERALES DE LA LOCATION');
+  ssec('Entretien, travaux et réparations :');
+  p('Le présent bail est consenti et accepté sous les charges et conditions ordinaires de droit en pareille matière. Le Preneur devra entretenir les biens loués constamment en bon état d'entretien et de réparations, à l'exclusion des grosses réparations visées à l'article 606 du Code civil qui restent à la charge du Bailleur.', false, 9.5, GREY);
+  y+=3;
+  ssec('Assurances :');
+  p('Le Preneur devra s'assurer contre les risques d'incendie, d'explosion, de dégâts des eaux ainsi que les risques locatifs. Il devra justifier de cette assurance au Bailleur à première demande, à peine de résiliation du bail.', false, 9.5, GREY);
+  y+=3;
+  ssec('Sous-location – Cession :');
+  p('Le Preneur ne pourra en aucun cas sous-louer le local, en totalité ou en partie. La cession du bail ne pourra intervenir qu'à un successeur dans le commerce, en totalité seulement, et sous réserve de l'accord préalable écrit du Bailleur.', false, 9.5, GREY);
+  y+=3;
+  ssec('Clause résolutoire :');
+  p('Il est expressément convenu qu'à défaut de paiement d'un seul terme à son échéance ou d'inexécution de l'une quelconque des clauses, un mois après un simple commandement de payer ou une sommation d'exécuter les conditions en souffrance restés sans effet, le présent bail sera résilié de plein droit si bon semble au Bailleur.', false, 9.5, GREY);
+  hr(); chk();
+
+  // ── V. ANNEXES ──
+  sec('V - NOMBRE D'EXEMPLAIRES - ANNEXES');
+  p('Le présent bail est établi en 2 exemplaires originaux.', false, 9.5, GREY); y+=3;
+  p('Il comprend les annexes suivantes :', false, 9.5, GREY);
+  ['x  État des lieux d'entrée', '□  Dossier de diagnostic technique', '□  Règlement de copropriété'].forEach(a => p('    '+a, false, 9.5, GREY));
+  y+=5;
+  p('Fait à Narbonne, le '+today, false, 10, GREY); y+=10;
+
+  // Signatures
+  const c1=ml, c2=W/2+5, lw=75;
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.setTextColor(...DARK);
+  pdf.text('LE BAILLEUR', c1, y); pdf.text('LE PRENEUR', c2, y); y+=5;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9); pdf.setTextColor(...LGREY);
+  pdf.text('SCI Thomarion – MARTIN Thomas', c1, y); pdf.text(societe, c2, y); y+=4;
+  pdf.setFont('helvetica','italic'); pdf.setFontSize(8); 
+  pdf.text('(Précédée de « Lu et approuvé »)', c1, y); pdf.text('(Précédée de « Lu et approuvé »)', c2, y); y+=16;
+  pdf.setDrawColor(150,150,150); pdf.setLineWidth(0.4);
+  pdf.line(c1,y,c1+lw,y); pdf.line(c2,y,c2+lw,y); y+=7;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(8); pdf.setTextColor(...LGREY);
+  pdf.text('Date : _____ / _____ / _________', c1, y);
+  pdf.text('Date : _____ / _____ / _________', c2, y);
+
+  // Pieds de page
+  const total = pdf.internal.getNumberOfPages();
+  for(let i=1; i<=total; i++){
+    pdf.setPage(i);
+    pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,290,W-mr,290);
+    pdf.setFont('helvetica','normal'); pdf.setFontSize(7.5); pdf.setTextColor(...DARK);
+    pdf.text('SCI Thomarion • Bail commercial • Art. L.145-1 Code de commerce', W/2, 294, {align:'center'});
+    pdf.setTextColor(...LGREY); pdf.text('Page '+i+'/'+total, W-mr, 294, {align:'right'});
+  }
+
+  const fn = 'bail_commercial_'+societe.replace(/\s+/g,'_')+'_'+dateD.replace(/\//g,'-')+'.pdf';
+  dlPDF(pdf, fn);
+  await dbAddHist({type:'Bail commercial',qui:societe,periode:adresse,montant:loyerHT+' € HT/an',fichier:fn,
+    comData:{societe,societeAdr,representant,naissance,naissanceLieu,adresse,surface,composition,
+      destination,lot,tantieme,tantiemeTotal,dateDebut,duree,loyerHT,tva,chargesHT,depot,
+      depotL,loyerL,taxeFonciere,taxeQP,ilc,ilcTrim}
+  });
+  renderBailHist();
+  toast('Bail commercial généré !','ok');
+};
 window.bailAutoLettres = function() {
   const l = +document.getElementById('bailLoyer').value;
   const d = +document.getElementById('bailDepot').value;
@@ -830,7 +1080,7 @@ window.bailAutoLettres = function() {
 };
 
 window.renderBailHist = function() {
-  const h = window.hist.filter(x => x.type === 'Bail').slice(0,10);
+  const h = window.hist.filter(x => x.type === 'Bail' || x.type === 'Bail commercial').slice(0,10);
   const c = document.getElementById('bailHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div>';return;}
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Locataire</th><th>Adresse</th><th>Loyer</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr>
@@ -1801,7 +2051,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.04/07/2026 08:03</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.18/07/2026 13:11</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
@@ -1982,69 +2232,159 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   </div>
 
   <div id="page-bail" class="page">
-    <div class="section-title">Baux de location <span class="pill">Non meublés</span></div>
-    <div class="card">
-      <div class="card-head">&#128209; Nouveau bail</div>
-      <div class="card-body">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem">
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128100; Locataire</div>
-            <div class="field"><label>Nom complet</label><input id="bailNom" placeholder="ex: Saulnier Didier"/></div>
-            <div class="field"><label>Adresse actuelle</label><input id="bailLocAdresse" placeholder="ex: 12 rue Hugo, Paris"/></div>
-          </div>
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#127968; Le logement</div>
-            <div class="field"><label>Adresse louée</label><input id="bailAdresse" value="83 B avenue Jean Camp, 11100 Narbonne"/></div>
-            <div class="row2">
-              <div class="field"><label>Surface (m²)</label><input id="bailSurface" type="number" value="50" step="0.5"/></div>
-              <div class="field"><label>Nb pièces</label><input id="bailPieces" type="number" value="2" min="1"/></div>
+    <div class="section-title">Baux <span class="pill">Habitation &amp; Commercial</span></div>
+
+    <!-- Sélecteur de type de bail -->
+    <div style="display:flex;gap:.75rem;margin-bottom:1.2rem">
+      <button id="btnBailHab" class="btn-gen" onclick="switchBailType('hab')" style="flex:1">&#127968; Bail d&#39;habitation</button>
+      <button id="btnBailCom" class="btn-gen" onclick="switchBailType('com')" style="flex:1;background:var(--blue)">&#127978; Bail commercial</button>
+    </div>
+
+    <!-- ══ BAIL HABITATION ══ -->
+    <div id="formBailHab">
+      <div class="card">
+        <div class="card-head">&#128209; Nouveau bail d&#39;habitation (non meubl&eacute;)</div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem">
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128100; Locataire</div>
+              <div class="field"><label>Nom complet</label><input id="bailNom" placeholder="ex: Saulnier Didier"/></div>
+              <div class="field"><label>Adresse actuelle</label><input id="bailLocAdresse" placeholder="ex: 12 rue Hugo, Paris"/></div>
             </div>
-          </div>
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128197; Dates</div>
-            <div class="field"><label>Prise d&#39;effet</label><input id="bailDateDebut" type="date"/></div>
-            <div class="field"><label>Durée</label>
-              <select id="bailDuree">
-                <option value="3">3 ans (personne physique)</option>
-                <option value="6">6 ans (personne morale)</option>
-                <option value="1">1 an (durée réduite)</option>
-              </select>
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#127968; Le logement</div>
+              <div class="field"><label>Adresse lou&eacute;e</label><input id="bailAdresse" value="83 B avenue Jean Camp, 11100 Narbonne"/></div>
+              <div class="row2">
+                <div class="field"><label>Surface (m&sup2;)</label><input id="bailSurface" type="number" value="50" step="0.5"/></div>
+                <div class="field"><label>Nb pi&egrave;ces</label><input id="bailPieces" type="number" value="2" min="1"/></div>
+              </div>
             </div>
-          </div>
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Loyer</div>
-            <div class="row2">
-              <div class="field"><label>Loyer (€)</label><input id="bailLoyer" type="number" value="550" oninput="bailAutoLettres()"/></div>
-              <div class="field"><label>Charges (€/mois)</label><input id="bailCharges" type="number" value="150"/></div>
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128197; Dates</div>
+              <div class="field"><label>Prise d&#39;effet</label><input id="bailDateDebut" type="date"/></div>
+              <div class="field"><label>Dur&eacute;e</label>
+                <select id="bailDuree">
+                  <option value="3">3 ans (personne physique)</option>
+                  <option value="6">6 ans (personne morale)</option>
+                  <option value="1">1 an (dur&eacute;e r&eacute;duite)</option>
+                </select>
+              </div>
             </div>
-            <div class="field"><label>Loyer en lettres</label><input id="bailLoyerLettres" placeholder="cinq cent cinquante euros"/></div>
-          </div>
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Garantie &amp; Paiement</div>
-            <div class="row2">
-              <div class="field"><label>Dépôt garantie (€)</label><input id="bailDepot" type="number" value="550" oninput="bailAutoLettres()"/></div>
-              <div class="field"><label>Jour paiement</label><input id="bailJourPaie" type="number" value="5" min="1" max="28"/></div>
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Loyer</div>
+              <div class="row2">
+                <div class="field"><label>Loyer (&euro;/mois)</label><input id="bailLoyer" type="number" value="550" oninput="bailAutoLettres()"/></div>
+                <div class="field"><label>Charges (&euro;/mois)</label><input id="bailCharges" type="number" value="150"/></div>
+              </div>
+              <div class="field"><label>Loyer en lettres</label><input id="bailLoyerLettres" placeholder="cinq cent cinquante euros"/></div>
             </div>
-            <div class="field"><label>Dépôt en lettres</label><input id="bailDepotLettres" placeholder="cinq cent cinquante euros"/></div>
-          </div>
-          <div>
-            <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128200; Indice IRL</div>
-            <div class="row2">
-              <div class="field"><label>Valeur IRL</label><input id="bailIRL" type="number" step="0.01" value="143.44" placeholder="ex: 143.44"/></div>
-              <div class="field"><label>Trimestre de référence</label><input id="bailIRLTrim" placeholder="ex: T4 2024"/></div>
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Garantie &amp; IRL</div>
+              <div class="row2">
+                <div class="field"><label>D&eacute;p&ocirc;t garantie (&euro;)</label><input id="bailDepot" type="number" value="550" oninput="bailAutoLettres()"/></div>
+                <div class="field"><label>Jour paiement</label><input id="bailJourPaie" type="number" value="5" min="1" max="28"/></div>
+              </div>
+              <div class="field"><label>D&eacute;p&ocirc;t en lettres</label><input id="bailDepotLettres" placeholder="cinq cent cinquante euros"/></div>
+              <div class="row2">
+                <div class="field"><label>IRL valeur</label><input id="bailIRL" type="number" step="0.01" value="143.44"/></div>
+                <div class="field"><label>IRL trimestre</label><input id="bailIRLTrim" placeholder="T4 2024"/></div>
+              </div>
             </div>
-            <button class="btn-gen" onclick="genBail()" style="width:100%;font-size:.9rem;padding:.75rem;margin-top:.5rem">&#128196; Générer PDF</button>
-            <button class="btn-gen" onclick="genBailDocx()" style="width:100%;font-size:.9rem;padding:.75rem;margin-top:.5rem;background:var(--blue)">&#128196; Générer Word (.docx)</button>
+            <div style="display:flex;flex-direction:column;justify-content:flex-end">
+              <button class="btn-gold" onclick="genBail()" style="margin-bottom:.5rem">&#128209; G&eacute;n&eacute;rer PDF bail</button>
+              <button class="btn-gold" onclick="genBailDocx()" style="background:var(--blue)">&#128196; G&eacute;n&eacute;rer Word bail</button>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- ══ BAIL COMMERCIAL ══ -->
+    <div id="formBailCom" style="display:none">
+      <div class="card">
+        <div class="card-head">&#127978; Nouveau bail commercial (9 ans)</div>
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1.2rem">
+
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#127978; Le Preneur</div>
+              <div class="field"><label>Soci&eacute;t&eacute; preneuse</label><input id="comSociete" placeholder="ex: SASU Smoke and Smile"/></div>
+              <div class="field"><label>Adresse si&egrave;ge social</label><input id="comSocieteAdr" placeholder="ex: 62 rue Demoge, 11100 Narbonne"/></div>
+              <div class="field"><label>Repr&eacute;sent&eacute; par</label><input id="comRepresentant" placeholder="ex: Thomas MARTIN"/></div>
+              <div class="field"><label>N&eacute; le</label><input id="comNaissance" placeholder="ex: 03/09/1980"/></div>
+              <div class="field"><label>&agrave;</label><input id="comNaissanceLieu" placeholder="ex: Villeneuve Saint George (94)"/></div>
+            </div>
+
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#127968; Le local commercial</div>
+              <div class="field"><label>Adresse du local</label><input id="comAdresse" placeholder="ex: 83 avenue Jean Camp, 11100 Narbonne"/></div>
+              <div class="field"><label>Surface totale (m&sup2;)</label><input id="comSurface" type="number" placeholder="42"/></div>
+              <div class="field"><label>Composition du local</label><textarea id="comComposition" rows="3" style="width:100%;padding:.52rem .8rem;border:1.5px solid var(--border);border-radius:7px;font-family:'DM Sans',sans-serif;font-size:.875rem;resize:vertical" placeholder="ex: partie vente 35 m², réserve 7 m²"></textarea></div>
+              <div class="field"><label>Destination (activit&eacute;)</label><input id="comDestination" placeholder="ex: Local de stockage et vente pour vape shop"/></div>
+              <div class="row2">
+                <div class="field"><label>Lot(s) n&deg;</label><input id="comLot" placeholder="ex: 1"/></div>
+                <div class="field"><label>Tanti&egrave;mes (/1000)</label><input id="comTantieme" type="number" placeholder="ex: 194"/></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128197; Dur&eacute;e</div>
+              <div class="field"><label>Date de d&eacute;but</label><input id="comDateDebut" type="date"/></div>
+              <div class="field"><label>Dur&eacute;e</label>
+                <select id="comDuree">
+                  <option value="9">9 ans (bail commercial standard)</option>
+                  <option value="3">3 ans (bail d&eacute;rogatoire)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Loyer annuel</div>
+              <div class="row3">
+                <div class="field"><label>Loyer annuel HT (&euro;)</label><input id="comLoyerHT" type="number" step="0.01" placeholder="950" oninput="comCalc()"/></div>
+                <div class="field"><label>TVA (%)</label><input id="comTVA" type="number" step="0.01" value="20" oninput="comCalc()"/></div>
+                <div class="field"><label>Loyer annuel TTC</label><input id="comLoyerTTC" type="number" step="0.01" readonly style="font-weight:700"/></div>
+              </div>
+              <div class="field"><label>Loyer en lettres (annuel HT)</label><input id="comLoyerLettres" placeholder="neuf cent cinquante euros"/></div>
+              <div class="row2">
+                <div class="field"><label>Loyer mensuel HT (&euro;)</label><input id="comLoyerMensuel" type="number" step="0.01" readonly/></div>
+                <div class="field"><label>Loyer mensuel TTC (&euro;)</label><input id="comLoyerMensuelTTC" type="number" step="0.01" readonly/></div>
+              </div>
+            </div>
+
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128176; Charges &amp; Garantie</div>
+              <div class="row2">
+                <div class="field"><label>Provision charges HT (&euro;/mois)</label><input id="comChargesHT" type="number" step="0.01" placeholder="45" oninput="comCalc()"/></div>
+                <div class="field"><label>TVA charges (&euro;/mois)</label><input id="comChargesTTC" type="number" step="0.01" readonly/></div>
+              </div>
+              <div class="field"><label>D&eacute;p&ocirc;t de garantie (&euro;)</label><input id="comDepot" type="number" step="0.01" placeholder="950" oninput="comCalcDepot()"/></div>
+              <div class="field"><label>D&eacute;p&ocirc;t en lettres</label><input id="comDepotLettres" placeholder="neuf cent cinquante euros"/></div>
+            </div>
+
+            <div>
+              <div class="form-section-title" style="font-size:.66rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.7rem">&#128200; Taxe fonci&egrave;re &amp; ILC</div>
+              <div class="field"><label>Taxe fonci&egrave;re totale immeuble (&euro;/an)</label><input id="comTaxeFonciere" type="number" step="0.01" placeholder="2000" oninput="comCalcTaxe()"/></div>
+              <div class="field"><label>Tantièmes totaux immeuble (/1000)</label><input id="comTantiemesTotaux" type="number" value="1000" oninput="comCalcTaxe()"/></div>
+              <div class="field"><label>Quote-part taxe fonci&egrave;re (&euro;/an)</label><input id="comTaxeQuotePart" type="number" step="0.01" readonly style="font-weight:700;background:#e8f7ee"/></div>
+              <div class="row2">
+                <div class="field"><label>ILC valeur</label><input id="comILC" type="number" step="0.01" placeholder="ex: 131.37"/></div>
+                <div class="field"><label>ILC trimestre</label><input id="comILCTrim" placeholder="ex: T2 2024"/></div>
+              </div>
+              <button class="btn-gold" onclick="genBailCom()" style="width:100%;margin-top:.5rem">&#127978; G&eacute;n&eacute;rer bail commercial PDF</button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Historique commun -->
     <div class="card" style="margin-top:1.2rem">
       <div class="card-head">&#128203; Derniers baux</div>
       <div id="bailHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128209;</div>Aucun bail.</div></div>
     </div>
   </div>
-
 
   <div id="page-historique" class="page">
     <div class="section-title">Historique complet <span class="pill">Tous types</span></div>
