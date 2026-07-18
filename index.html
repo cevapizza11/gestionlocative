@@ -963,8 +963,7 @@ window.genBailCom = async function() {
   ssec('Désignation :');
   p('Par les présentes, le Bailleur donne en location au Preneur le local ci-après désigné :', false, 9.5, GREY);
   if(composition) {
-    composition.split('
-').forEach(line => {
+    composition.split('\n').forEach(line => {
       if(line.trim()) p('    - '+line.trim(), false, 9.5, GREY);
     });
   } else {
@@ -990,17 +989,17 @@ window.genBailCom = async function() {
   sec('III - CONDITIONS PARTICULIERES DE LA LOCATION');
   ssec('Durée :');
   p('Le présent bail est consenti et accepté pour une durée de '+duree+' années entières et consécutives à compter du '+dateD+', soit jusqu'au '+dateF+'.', false, 9.5, GREY);
-  if(duree===9) p('Toutefois, le Preneur pourra y mettre fin, par anticipation, à l'expiration de chacune des deux périodes triennales en prévenant le Bailleur au moins six mois à l'avance, par acte extrajudiciaire.', false, 9.5, GREY);
+  if(duree===9) p('Toutefois, le Preneur pourra y mettre fin, par anticipation, à l\'expiration de chacune des deux périodes triennales en prévenant le Bailleur au moins six mois à l'avance, par acte extrajudiciaire.', false, 9.5, GREY);
   y+=3;
   ssec('Loyer – TVA :');
   p('Le présent bail est consenti et accepté moyennant un loyer annuel hors charges et hors taxes de :', false, 9.5, GREY);
   pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5); pdf.setTextColor(...DARK);
   pdf.text(loyerL.toUpperCase()+'  ('+loyerHT.toLocaleString('fr-FR')+' €) HT, soit '+loyerTTC.toLocaleString('fr-FR')+'€ TTC', ml+5, y); y+=7;
-  p('que le Preneur s'oblige à payer par mois, à terme d'avance, au domicile du Bailleur ou en tout autre lieu indiqué par lui.', false, 9.5, GREY);
-  p('Le loyer est assujetti à la TVA au taux de '+tva+'% en vigueur à sa date d'exigibilité, à la charge du Preneur.', false, 9.5, GREY);
+  p('que le Preneur s'oblige à payer par mois, à terme d\'avance, au domicile du Bailleur ou en tout autre lieu indiqué par lui.', false, 9.5, GREY);
+  p('Le loyer est assujetti à la TVA au taux de '+tva+'% en vigueur à sa date d\'exigibilité, à la charge du Preneur.', false, 9.5, GREY);
   y+=3;
   ssec('Révision du loyer :');
-  p('Le loyer sera indexé automatiquement en fonction de la variation de l'Indice des Loyers Commerciaux (ILC) publié par l'INSEE. La révision interviendra chaque année à la date anniversaire du présent bail.'+(ilc?' L'indice de base retenu est celui du '+ilcTrim+', soit '+ilc+'.':''), false, 9.5, GREY);
+  p('Le loyer sera indexé automatiquement en fonction de la variation de l\'Indice des Loyers Commerciaux (ILC) publié par l'INSEE. La révision interviendra chaque année à la date anniversaire du présent bail.'+(ilc?' L'indice de base retenu est celui du '+ilcTrim+', soit '+ilc+'.':''), false, 9.5, GREY);
   y+=3;
   ssec('Impôts et taxes :');
   p('Le Preneur acquittera ses contributions personnelles : taxe professionnelle, et généralement tous impôts et taxes auxquels il est assujetti personnellement.', false, 9.5, GREY);
@@ -1012,7 +1011,7 @@ window.genBailCom = async function() {
   p('Le Preneur versera, à chaque terme de loyer, en sus du loyer, une provision pour charges de '+chargesHT.toLocaleString('fr-FR')+'€ HT, soit '+chargesTTC.toLocaleString('fr-FR')+'€ TTC par mois. Il sera procédé à une régularisation annuelle sur présentation des justificatifs.', false, 9.5, GREY);
   y+=3;
   ssec('Dépôt de garantie :');
-  p('Pour garantir l'exécution de ses obligations, le Preneur verse au Bailleur la somme de '+depotL+' ('+depot.toLocaleString('fr-FR')+' €) à titre de dépôt de garantie. Cette somme sera restituée à l'expiration du bail, déduction faite de toute somme dont le Preneur pourrait être débiteur.', false, 9.5, GREY);
+  p('Pour garantir l'exécution de ses obligations, le Preneur verse au Bailleur la somme de '+depotL+' ('+depot.toLocaleString('fr-FR')+' €) à titre de dépôt de garantie. Cette somme sera restituée à l\'expiration du bail, déduction faite de toute somme dont le Preneur pourrait être débiteur.', false, 9.5, GREY);
   hr(); chk();
 
   // ── IV. CONDITIONS GÉNÉRALES ──
@@ -1021,20 +1020,20 @@ window.genBailCom = async function() {
   p('Le présent bail est consenti et accepté sous les charges et conditions ordinaires de droit en pareille matière. Le Preneur devra entretenir les biens loués constamment en bon état d'entretien et de réparations, à l'exclusion des grosses réparations visées à l'article 606 du Code civil qui restent à la charge du Bailleur.', false, 9.5, GREY);
   y+=3;
   ssec('Assurances :');
-  p('Le Preneur devra s'assurer contre les risques d'incendie, d'explosion, de dégâts des eaux ainsi que les risques locatifs. Il devra justifier de cette assurance au Bailleur à première demande, à peine de résiliation du bail.', false, 9.5, GREY);
+  p('Le Preneur devra s\'assurer contre les risques d\'incendie, d\'explosion, de dégâts des eaux ainsi que les risques locatifs. Il devra justifier de cette assurance au Bailleur à première demande, à peine de résiliation du bail.', false, 9.5, GREY);
   y+=3;
   ssec('Sous-location – Cession :');
-  p('Le Preneur ne pourra en aucun cas sous-louer le local, en totalité ou en partie. La cession du bail ne pourra intervenir qu'à un successeur dans le commerce, en totalité seulement, et sous réserve de l'accord préalable écrit du Bailleur.', false, 9.5, GREY);
+  p('Le Preneur ne pourra en aucun cas sous-louer le local, en totalité ou en partie. La cession du bail ne pourra intervenir qu\'à un successeur dans le commerce, en totalité seulement, et sous réserve de l'accord préalable écrit du Bailleur.', false, 9.5, GREY);
   y+=3;
   ssec('Clause résolutoire :');
-  p('Il est expressément convenu qu'à défaut de paiement d'un seul terme à son échéance ou d'inexécution de l'une quelconque des clauses, un mois après un simple commandement de payer ou une sommation d'exécuter les conditions en souffrance restés sans effet, le présent bail sera résilié de plein droit si bon semble au Bailleur.', false, 9.5, GREY);
+  p('Il est expressément convenu qu\'à défaut de paiement d\'un seul terme à son échéance ou d\'inexécution de l\'une quelconque des clauses, un mois après un simple commandement de payer ou une sommation d\'exécuter les conditions en souffrance restés sans effet, le présent bail sera résilié de plein droit si bon semble au Bailleur.', false, 9.5, GREY);
   hr(); chk();
 
   // ── V. ANNEXES ──
-  sec('V - NOMBRE D'EXEMPLAIRES - ANNEXES');
+  sec('V - NOMBRE D\'EXEMPLAIRES - ANNEXES');
   p('Le présent bail est établi en 2 exemplaires originaux.', false, 9.5, GREY); y+=3;
   p('Il comprend les annexes suivantes :', false, 9.5, GREY);
-  ['x  État des lieux d'entrée', '□  Dossier de diagnostic technique', '□  Règlement de copropriété'].forEach(a => p('    '+a, false, 9.5, GREY));
+  ['x  État des lieux d\'entrée', '□  Dossier de diagnostic technique', '□  Règlement de copropriété'].forEach(a => p('    '+a, false, 9.5, GREY));
   y+=5;
   p('Fait à Narbonne, le '+today, false, 10, GREY); y+=10;
 
@@ -2051,7 +2050,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.18/07/2026 13:11</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.18/07/2026 13:23</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
