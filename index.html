@@ -1118,6 +1118,47 @@ window.bailAutoLettres = function() {
   if(d) document.getElementById('bailDepotLettres').value = loyerLettres(d);
 };
 
+window.retelechargerBailCom = async function(histId) {
+  const entry = window.hist.find(x => x.id === histId);
+  if(!entry || !entry.comData) { toast('Données du bail introuvables.','err'); return; }
+  const d = entry.comData;
+  document.getElementById('comSociete').value       = d.societe || '';
+  document.getElementById('comSocieteAdr').value    = d.societeAdr || '';
+  document.getElementById('comRepresentant').value  = d.representant || '';
+  document.getElementById('comNaissance').value      = d.naissance || '';
+  document.getElementById('comNaissanceLieu').value  = d.naissanceLieu || '';
+  document.getElementById('comAdresse').value        = d.adresse || '';
+  document.getElementById('comSurface').value        = d.surface || '';
+  document.getElementById('comComposition').value    = d.composition || '';
+  document.getElementById('comDestination').value    = d.destination || '';
+  document.getElementById('comLot').value            = d.lot || '';
+  document.getElementById('comTantieme').value       = d.tantieme || '';
+  document.getElementById('comTantiemesTotaux').value = d.tantiemeTotal || 1000;
+  document.getElementById('comDateDebut').value      = d.dateDebut || '';
+  document.getElementById('comDuree').value          = d.duree || 3;
+  document.getElementById('comLoyerHT').value        = d.loyerHT || 0;
+  document.getElementById('comTVA').value            = d.tva || 20;
+  document.getElementById('comLoyerLettres').value   = d.loyerL || '';
+  document.getElementById('comChargesHT').value      = d.chargesHT || 0;
+  document.getElementById('comDepot').value          = d.depot || 0;
+  document.getElementById('comDepotLettres').value   = d.depotL || '';
+  document.getElementById('comTaxeFonciere').value   = d.taxeFonciere || 0;
+  document.getElementById('comILC').value            = d.ilc || '';
+  document.getElementById('comILCTrim').value        = d.ilcTrim || '';
+  // Recalcule les champs dérivés (TTC, mensuel, quote-part)
+  comCalc(); comCalcDepot(); comCalcTaxe();
+  // Bascule sur l'onglet Baux, mode commercial
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-bail').classList.add('active');
+  const tabs = document.querySelectorAll('.tab-btn');
+  tabs.forEach(b => { if(b.onclick && b.onclick.toString().includes('bail')) b.classList.add('active'); });
+  switchBailType('com');
+  // Génère immédiatement
+  await genBailCom();
+  toast('Bail commercial retéléchargé !', 'ok');
+};
+
 window.renderBailHist = function() {
   const h = window.hist.filter(x => x.type === 'Bail' || x.type === 'Bail commercial').slice(0,10);
   const c = document.getElementById('bailHistTable');
@@ -1127,6 +1168,7 @@ window.renderBailHist = function() {
     <td style="color:var(--muted)">${x.date||''}</td>
     <td style="white-space:nowrap">
       ${x.bailData?`<button class="btn-edit-sm" onclick="retelechargerBail('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015; PDF</button>`:''}
+      ${x.comData?`<button class="btn-edit-sm" onclick="retelechargerBailCom('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015; PDF</button>`:''}
       <button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>
       ${driveBtn(x)}
     </td>
@@ -2090,7 +2132,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.17/08/2026 00:00</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.17/08/2026 12:00</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
