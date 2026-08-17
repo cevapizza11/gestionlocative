@@ -1044,7 +1044,7 @@ window.genBailCom = async function() {
   ssec('Impôts et taxes :');
   p('Le Preneur acquittera ses contributions personnelles : taxe professionnelle, et généralement tous impôts et taxes auxquels il est assujetti personnellement.', false, 9.5, GREY);
   if(taxeFonciere > 0) {
-    p('Le Preneur remboursera au Bailleur la quote-part de taxe foncière correspondant au(x) lot(s) loué(s), soit '+tantieme+' millièmes sur '+tantiemeTotal+' millièmes totaux de l\'immeuble, représentant environ '+taxeQP.toLocaleString('fr-FR')+'€ par an (sur la base d\'une taxe foncière totale de '+taxeFonciere.toLocaleString('fr-FR')+'€). Ce montant sera régularisé chaque année sur présentation de l\'avis de taxe foncière.', false, 9.5, GREY);
+    p('Le Preneur remboursera au Bailleur la quote-part de taxe foncière correspondant au(x) lot(s) loué(s), soit '+tantieme+' millièmes sur '+tantiemeTotal+' millièmes totaux de l\'immeuble, représentant environ '+taxeQP.toLocaleString('fr-FR')+'€ par an (sur la base d\'une taxe foncière totale de '+taxeFonciere.toLocaleString('fr-FR')+'€). Ce montant sera régularisé chaque année sur présentation de la taxe foncière dès sa réception.', false, 9.5, GREY);
   }
   y+=3;
   ssec('Provision pour charges :');
@@ -1073,7 +1073,7 @@ window.genBailCom = async function() {
   sec('V - NOMBRE D\'EXEMPLAIRES - ANNEXES');
   p('Le présent bail est établi en 2 exemplaires originaux.', false, 9.5, GREY); y+=3;
   p('Il comprend les annexes suivantes :', false, 9.5, GREY);
-  ['x  État des lieux d\'entrée', '□  Dossier de diagnostic technique', '□  Règlement de copropriété'].forEach(a => p('    '+a, false, 9.5, GREY));
+  ['x  État des lieux d\'entrée', '□  Règlement de copropriété si il éxiste.'].forEach(a => p('    '+a, false, 9.5, GREY));
   y+=5;
   p('Fait à Narbonne, le '+today, false, 10, GREY); y+=10;
 
@@ -2132,7 +2132,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.17/08/2026 12:00</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.17/08/2026 13:00</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
