@@ -14,6 +14,15 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
+// ── COORDONNÉES SCI THOMARION (modifiables via Paramètres) ─────────
+let sciInfo = {
+  adresse: '83 avenue Jean Camps, 11100 Narbonne',
+  tel: '06 63 09 74 82',
+  siret: '918 029 810 00010',
+  email: 'tmjumeaux@orange.fr'
+};
+window.sciInfo = sciInfo;
+
 const firebaseConfig = {
   apiKey: "AIzaSyB6BGTt7qfmSF6M92ijwEnhdvfoXmY-zVk",
   authDomain: "sci-thomarion.firebaseapp.com",
@@ -63,6 +72,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 function startListeners(uid) {
+  onSnapshot(doc(db, 'users', uid, 'settings', 'sci'), snap => {
+    if (snap.exists()) {
+      Object.assign(sciInfo, snap.data());
+      const fA = document.getElementById('sciAdresse'), fT = document.getElementById('sciTel'),
+            fS = document.getElementById('sciSiret'), fE = document.getElementById('sciEmail');
+      if (fA) fA.value = sciInfo.adresse || '';
+      if (fT) fT.value = sciInfo.tel || '';
+      if (fS) fS.value = sciInfo.siret || '';
+      if (fE) fE.value = sciInfo.email || '';
+    }
+  });
   onSnapshot(collection(db, 'users', uid, 'qLocs'), snap => {
     window.qLocs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     renderQLocs(); renderQHist();
@@ -90,6 +110,26 @@ async function dbAddHist(entry) {
   const id = Date.now().toString();
   await setDoc(doc(db,'users',uid(),'hist',id), {...entry, ts: serverTimestamp(), date: new Date().toLocaleDateString('fr-FR')});
 }
+
+window.openSciParams = function() {
+  document.getElementById('sciAdresse').value = sciInfo.adresse || '';
+  document.getElementById('sciTel').value = sciInfo.tel || '';
+  document.getElementById('sciSiret').value = sciInfo.siret || '';
+  document.getElementById('sciEmail').value = sciInfo.email || '';
+  document.getElementById('sciParamsModal').classList.add('open');
+};
+window.saveSciParams = async function() {
+  const adresse = document.getElementById('sciAdresse').value.trim();
+  const tel     = document.getElementById('sciTel').value.trim();
+  const siret   = document.getElementById('sciSiret').value.trim();
+  const email   = document.getElementById('sciEmail').value.trim();
+  if (!adresse) { toast('Adresse obligatoire', 'err'); return; }
+  const data = { adresse, tel, siret, email };
+  await setDoc(doc(db, 'users', uid(), 'settings', 'sci'), data);
+  Object.assign(sciInfo, data);
+  closeModal('sciParamsModal');
+  toast('Coordonnées SCI mises à jour.', 'ok');
+};
 
 // ── MOIS ──────────────────────────────────────────────────────────
 const MFRDOC  = ["","janvier","f\u00e9vrier","mars","avril","mai","juin","juillet","ao\u00fbt","septembre","octobre","novembre","d\u00e9cembre"];
@@ -244,7 +284,7 @@ function genPdfQuittance(loc, mois, annee, jourPaie) {
   pdf.line(ml, yFoot, W-mr, yFoot);
   pdf.setFontSize(8.5);
   pdf.setTextColor(...BLUE);
-  pdf.text('SCI Thomarion  \u2022  83 avenue Jean Camps, 11100 Narbonne  \u2022  06 63 09 74 82  \u2022  Siret : 918 029 810 00010', W/2, yFoot+5, {align:'center'});
+  pdf.text(`SCI Thomarion  \u2022  ${sciInfo.adresse}  \u2022  ${sciInfo.tel}  \u2022  Siret : ${sciInfo.siret}`, W/2, yFoot+5, {align:'center'});
 
   return pdf;
 }
@@ -361,9 +401,9 @@ function genPdfLoyer(loc, mois, annee, jour) {
   pdf.setTextColor(...DARK);
   pdf.text('SCI Thomarion,', ml, y); y+=5.5;
   pdf.setFont('helvetica','normal');
-  pdf.text('83 avenue Jean Camps, 11100 Narbonne,', ml, y); y+=5.5;
-  pdf.text('06 63 09 74 82,', ml, y); y+=5.5;
-  pdf.text('N\u00b0 siret : 918 029 810 00010', ml, y);
+  pdf.text(sciInfo.adresse+',', ml, y); y+=5.5;
+  pdf.text(sciInfo.tel+',', ml, y); y+=5.5;
+  pdf.text('N\u00b0 siret : '+sciInfo.siret, ml, y);
 
   return pdf;
 }
@@ -948,7 +988,7 @@ window.genBailCom = async function() {
   // ── ENTRE LES SOUSSIGNÉS ──
   p('ENTRE LES SOUSSIGNÉS', true, 11, DARK);
   y+=3;
-  p('SCI THOMARION, domiciliée au 14 rue de la Clape, 11110 Vinassan, représentée par son gérant Thomas MARTIN né le 03/09/1980 à Villeneuve Saint George (94)', false, 10, GREY, false);
+  p('SCI THOMARION, domiciliée au '+sciInfo.adresse+', représentée par son gérant Thomas MARTIN né le 03/09/1980 à Villeneuve Saint George (94)', false, 10, GREY, false);
   p('Ci-après dénommé(e) le Bailleur', false, 10, LGREY, false);
   y+=3; p('Et', false, 10, GREY, false); y+=3;
   p(societe+(societeAdr?', domicilié au '+societeAdr:'')+', représenté par son président '+representant+(naissance?' né le '+naissance:'')+' à '+(naissanceLieu||''), false, 10, GREY, false);
@@ -1173,7 +1213,7 @@ window.genBail = async function() {
       const tot = '?';
       pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,290,W-mr,290);
       sf(false,7,DARK);
-      pdf.text('SCI Thomarion • 83 av. Jean Camps, 11100 Narbonne • 06 63 09 74 82 • Siret : 918 029 810 00010 • Bail conforme loi ALUR n°89-462', W/2, 294, {align:'center'});
+      pdf.text(`SCI Thomarion • ${sciInfo.adresse} • ${sciInfo.tel} • Siret : ${sciInfo.siret} • Bail conforme loi ALUR n°89-462`, W/2, 294, {align:'center'});
     };
     const finalFooters = () => {
       const total = pdf.internal.getNumberOfPages();
@@ -1181,7 +1221,7 @@ window.genBail = async function() {
         pdf.setPage(i);
         pdf.setDrawColor(...DARK); pdf.setLineWidth(0.3); pdf.line(ml,290,W-mr,290);
         sf(false,7,DARK);
-        pdf.text('SCI Thomarion • 83 av. Jean Camps, 11100 Narbonne • 06 63 09 74 82 • Siret : 918 029 810 00010 • Bail conforme loi ALUR n°89-462', W/2, 294, {align:'center'});
+        pdf.text(`SCI Thomarion • ${sciInfo.adresse} • ${sciInfo.tel} • Siret : ${sciInfo.siret} • Bail conforme loi ALUR n°89-462`, W/2, 294, {align:'center'});
         sf(false,7,LGREY);
         pdf.text('Page '+i+' / '+total, W-mr, 294, {align:'right'});
       }
@@ -1204,10 +1244,10 @@ window.genBail = async function() {
   sec('I','DESIGNATION DES PARTIES');
   subsec('Le Bailleur');
   info('Nom :','SCI THOMARION — représentée par MARTIN Thomas');
-  info('Adresse :','83 avenue Jean Camps, 11100 Narbonne');
-  info('Téléphone :','06 63 09 74 82');
-  info('Email :','tmjumeaux@orange.fr');
-  info('N° SIRET :','918 029 810 00010');
+  info('Adresse :',sciInfo.adresse);
+  info('Téléphone :',sciInfo.tel);
+  info('Email :',sciInfo.email);
+  info('N° SIRET :',sciInfo.siret);
   B.y+=3; subsec('Le Locataire');
   info('Nom / Prénom :',nom);
   if(locAdr) info('Adresse actuelle :',locAdr);
@@ -1693,8 +1733,8 @@ window.genBailDocx = async function() {
     dsub('Logement non meublé  •  Loi n°89-462 du 6 juillet 1989'),
     h1('I. DÉSIGNATION DES PARTIES'),
     h2('Le Bailleur'), fi('Nom :','SCI THOMARION — représentée par MARTIN Thomas'),
-    fi('Adresse :','83 avenue Jean Camps, 11100 Narbonne'), fi('Téléphone :','06 63 09 74 82'),
-    fi('Email :','tmjumeaux@orange.fr'), fi('N° SIRET :','918 029 810 00010'),
+    fi('Adresse :',sciInfo.adresse), fi('Téléphone :',sciInfo.tel),
+    fi('Email :',sciInfo.email), fi('N° SIRET :',sciInfo.siret),
     h2('Le Locataire'), fi('Nom / Prénom :',nom),
     ...(locAdr?[fi('Adresse actuelle :',locAdr)]:[]),
     sep(),
@@ -2050,7 +2090,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.18/07/2026 13:32</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.17/08/2026 00:00</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
@@ -2060,6 +2100,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       </div>
     </div>
     <div class="topbar-right">
+      <button class="logout-btn" style="margin-right:.5rem" onclick="openSciParams()">&#9881;&#65039; Param&egrave;tres</button>
       <span id="userEmail"></span>
       <button class="logout-btn" id="logoutBtn">D&eacute;connexion</button>
     </div>
@@ -2403,6 +2444,22 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeModal('qEditModal')">Annuler</button>
       <button class="btn btn-dark" style="width:auto" onclick="qSaveEdit()">Enregistrer</button>
+    </div>
+  </div>
+</div>
+<div id="sciParamsModal" class="modal-bg">
+  <div class="modal">
+    <div class="modal-head">Coordonn&eacute;es SCI Thomarion <button class="modal-close" onclick="closeModal('sciParamsModal')">&#10005;</button></div>
+    <div class="modal-body">
+      <div class="field"><label>Adresse du si&egrave;ge social</label><input id="sciAdresse" placeholder="ex: 83 avenue Jean Camps, 11100 Narbonne"/></div>
+      <div class="field"><label>T&eacute;l&eacute;phone</label><input id="sciTel" placeholder="ex: 06 63 09 74 82"/></div>
+      <div class="field"><label>N&deg; SIRET</label><input id="sciSiret" placeholder="ex: 918 029 810 00010"/></div>
+      <div class="field"><label>Email</label><input id="sciEmail" type="email" placeholder="ex: tmjumeaux@orange.fr"/></div>
+      <div style="font-size:.75rem;color:#888;margin-top:.4rem">Ces informations apparaissent automatiquement sur toutes les quittances, factures et baux g&eacute;n&eacute;r&eacute;s.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('sciParamsModal')">Annuler</button>
+      <button class="btn btn-dark" style="width:auto" onclick="saveSciParams()">Enregistrer</button>
     </div>
   </div>
 </div>
