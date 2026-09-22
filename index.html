@@ -99,7 +99,7 @@ function startListeners(uid) {
     window.hist = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a,b) => (b.ts?.seconds||0) - (a.ts?.seconds||0));
-    renderQHist(); renderFHist(); renderFdHist(); renderAllHist(); if(typeof renderBailHist==='function') renderBailHist();
+    renderQHist(); renderFHist(); renderFdHist(); renderAllHist(); if(typeof renderTFHist==='function') renderTFHist(); if(typeof renderBailHist==='function') renderBailHist();
   });
 }
 
@@ -589,7 +589,7 @@ window.openDriveModal = async function(histId) {
   if(url === null) return; // annulé
   // Save to Firestore
   try {
-    await db.collection('users').doc(UID).collection('hist').doc(histId).update({ driveUrl: url });
+    await setDoc(doc(db,'users',uid(),'hist',histId), { driveUrl: url }, { merge: true });
     toast('Lien enregistré !', 'ok');
   } catch(e) { toast('Erreur : ' + e.message, 'err'); }
 };
@@ -646,6 +646,17 @@ window.regenHist = async function(id) {
     return;
   }
 
+  if(x.type === 'Taxe fonci\u00e8re' && x.tfData) {
+    const loc = window.fLocs.find(l => l.id === x.tfData.locId);
+    if(!loc){ toast('Locataire introuvable','err'); return; }
+    try {
+      const pdf = genPdfTF(loc, x.tfData);
+      dlPDF(pdf, x.fichier || ('facture_taxe_fonciere_'+loc.nom.replace(/\s+/g,'_')+'.pdf'));
+      toast('Facture taxe fonci\u00e8re ret\u00e9l\u00e9charg\u00e9e !','ok');
+    } catch(e){ toast('Erreur : '+e.message,'err'); }
+    return;
+  }
+
   toast('Données insuffisantes pour regénérer ce document.','err');
 };
 window.supprimerHist = async function(id) {
@@ -656,15 +667,6 @@ window.supprimerHist = async function(id) {
   } catch(e) { toast('Erreur : ' + e.message, 'err'); }
 };
 
-window.regenHist = async function(id) {
-  const entry = window.hist.find(x => x.id === id);
-  if(!entry) return;
-  if(entry.type === 'Bail' && entry.bailData) {
-    retelechargerBail(id);
-  } else {
-    toast('Retéléchargement disponible uniquement pour les baux avec données sauvegardées.', 'err');
-  }
-};
 window.renderQHist=function(){
   const h=window.hist.filter(x=>x.type==='Quittance').slice(0,10);
   const c=document.getElementById('qHistTable');
@@ -695,6 +697,7 @@ function updateFBadge(){
   const b=document.getElementById('fSelBadge');
   if(l){b.style.display='flex';document.getElementById('fSelNom').textContent=l.nom;document.getElementById('fSelHT').textContent=parseFloat(l.ht).toLocaleString('fr-FR')+' \u20ac HT';}
   else b.style.display='none';
+  if(typeof tfOnSelect==='function') tfOnSelect(l);
 }
 window.fEditOpen=function(id,e){e.stopPropagation();const l=window.fLocs.find(x=>x.id===id);if(!l)return;document.getElementById('fEditId').value=id;document.getElementById('fEditNom').value=l.nom;document.getElementById('fEditAdr1').value=l.adr1;document.getElementById('fEditAdr2').value=l.adr2;document.getElementById('fEditLocal').value=l.local;document.getElementById('fEditLocalAdr').value=l.localAdr||'';document.getElementById('fEditHT').value=l.ht;document.getElementById('fEditTVA').value=l.tva;document.getElementById('fEditModal').classList.add('open');};
 window.fSaveEdit=async function(){const id=document.getElementById('fEditId').value,nom=document.getElementById('fEditNom').value.trim(),a1=document.getElementById('fEditAdr1').value.trim(),a2=document.getElementById('fEditAdr2').value.trim(),local=+document.getElementById('fEditLocal').value,ladr=document.getElementById('fEditLocalAdr').value.trim(),ht=+document.getElementById('fEditHT').value,tva=+document.getElementById('fEditTVA').value;if(!nom||!a1||!a2){toast('Champs manquants','err');return;}await dbSet('fLocs',id,{nom,adr1:a1,adr2:a2,local,localAdr:ladr,ht,tva});closeModal('fEditModal');if(fSel===id)updateFBadge();toast('Modifi\u00e9.','ok');};
@@ -729,6 +732,204 @@ window.renderFHist=function(){
   const c=document.getElementById('fHistTable');
   if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div>';return;}
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Période</th><th>TTC</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.fData?`<button class="btn-edit-sm" onclick="regenHist('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
+};
+
+// ── TAXE FONCIÈRE (refacturation prorata) ─────────────────────────
+// Règles de calcul :
+//  - Quote-part du local = taxe foncière totale × (tantièmes du lot ÷ tantièmes totaux)
+//  - Prorata temporis : jours occupés dans l'année (date d'entrée incluse → 31/12 ou date de sortie incluse)
+//    ÷ nombre de jours de l'année (365 ou 366)
+//  - TEOM (ordures ménagères) : même quote-part et même prorata, sur une ligne séparée
+//  - TVA : taux saisi (repris du locataire pro) ; 0 = TVA non applicable
+function tfParseDate(str){ if(!str) return null; const [a,m,j]=str.split('-').map(Number); return Date.UTC(a,m-1,j); }
+function tfFmtDate(t){ const d=new Date(t); return pad2(d.getUTCDate())+'/'+pad2(d.getUTCMonth()+1)+'/'+d.getUTCFullYear(); }
+function tfR2(n){ return Math.round(n*100)/100; }
+
+function tfCompute(d){
+  const annee=+d.annee, tf=+d.tf||0, teom=+d.teom||0;
+  const t=+d.tantieme||0, T=+d.tantiemeTotal||0;
+  if(!annee||!tf||!t||!T) return {err:'Renseignez l\'année, le montant de la taxe foncière et les tantièmes.'};
+  if(t>T) return {err:'Les tantièmes du lot dépassent le total.'};
+  const debAn=Date.UTC(annee,0,1), finAn=Date.UTC(annee,11,31);
+  const nbJ=Math.round((finAn-debAn)/86400000)+1;
+  const ent=tfParseDate(d.dateEntree), sor=tfParseDate(d.dateSortie);
+  const deb=ent&&ent>debAn?ent:debAn;
+  const fin=sor&&sor<finAn?sor:finAn;
+  const jours=Math.max(0,Math.round((fin-deb)/86400000)+1);
+  if(!jours) return {err:'Le locataire n\'occupait pas le local en '+annee+' (vérifiez les dates).'};
+  const ratio=t/T;
+  const qpTF=tfR2(tf*ratio), qpTEOM=tfR2(teom*ratio);
+  const mTF=tfR2(tf*ratio*jours/nbJ), mTEOM=tfR2(teom*ratio*jours/nbJ);
+  const ht=tfR2(mTF+mTEOM);
+  const tva=+d.tva||0;
+  const tvaV=tfR2(ht*tva/100);
+  const ttc=tfR2(ht+tvaV);
+  return {annee,tf,teom,t,T,ratio,nbJ,jours,deb,fin,qpTF,qpTEOM,mTF,mTEOM,ht,tva,tvaV,ttc,complet:jours===nbJ};
+}
+
+function genPdfTF(loc, d){
+  const c=tfCompute(d);
+  if(c.err) throw new Error(c.err);
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({ unit:'mm', format:'a4' });
+  const W = 210, ml = 25, mr = 25, cw = W-ml-mr;
+  const DARK = [22,33,62], GREY=[60,60,60];
+  let y = 22;
+  const df = d.dateFact ? tfParseDate(d.dateFact) : Date.UTC(new Date().getFullYear(),new Date().getMonth(),new Date().getDate());
+  const dfD = new Date(df);
+
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(16); pdf.setTextColor(...DARK);
+  pdf.text('SCI THOMARION', ml, y); y += 10;
+
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(11); pdf.setTextColor(...GREY);
+  pdf.text(`NARBONNE, le ${dfD.getUTCDate()} ${MCAPDOC[dfD.getUTCMonth()+1]} ${dfD.getUTCFullYear()}`, ml, y); y += 12;
+
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(...DARK);
+  pdf.text(loc.nom, ml, y); y+=6;
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(10.5); pdf.setTextColor(...GREY);
+  pdf.text(loc.adr1||'', ml, y); y+=5.5;
+  pdf.text(loc.adr2||'', ml, y); y+=12;
+
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5); pdf.setTextColor(...GREY);
+  pdf.text(`REF/ Refacturation taxe foncière ${c.annee}`, ml, y); y+=5.5;
+  pdf.text(`Local ${loc.local}`, ml, y); y+=5.5;
+  pdf.setFont('helvetica','normal');
+  if(loc.localAdr){ pdf.text(loc.localAdr, ml, y); y+=5.5; }
+  y += 3;
+
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(...DARK);
+  pdf.text(`Facture ${c.annee}-TF-L${loc.local}`, ml, y); y += 9;
+
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(11); pdf.setTextColor(30,30,30);
+  pdf.text(`Quote-part de taxe foncière ${c.annee}`, ml, y); y += 7;
+
+  // Détail du calcul
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9.5); pdf.setTextColor(...GREY);
+  const eur = n => n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}).replace(/[  ]/g,' ')+' €';
+  const det = [
+    `Taxe foncière ${c.annee} de l'immeuble : ${eur(c.tf)}`+(c.teom?` ; TEOM de l'immeuble : ${eur(c.teom)}`:''),
+    `Quote-part du local : ${c.t} / ${c.T} tantièmes (${(c.ratio*100).toFixed(2).replace('.',',')} %), soit ${eur(c.qpTF)} par an`+(c.teom?` + ${eur(c.qpTEOM)} de TEOM`:''),
+    `Période d'occupation : du ${tfFmtDate(c.deb)} au ${tfFmtDate(c.fin)}, soit ${c.jours} jours sur ${c.nbJ}`+(c.complet?' (année complète)':' (prorata temporis)'),
+  ];
+  det.forEach(l=>{ const ls=pdf.splitTextToSize(l,cw); pdf.text(ls,ml,y); y+=ls.length*4.8; });
+  y += 5;
+
+  // Tableau
+  const col1 = 150, col2 = W-mr;
+  const rows = [[`Taxe foncière : ${eur(c.qpTF)} x ${c.jours}/${c.nbJ}`, fmtEur(c.mTF)]];
+  if(c.teom) rows.push([`TEOM : ${eur(c.qpTEOM)} x ${c.jours}/${c.nbJ}`, fmtEur(c.mTEOM)]);
+  rows.push(['Total HT', fmtEur(c.ht)]);
+  rows.push([c.tva?`T.V.A ${c.tva.toFixed(2)}%`:'T.V.A non applicable', fmtEur(c.tvaV)]);
+  rows.push([c.tva?'TOTAL TTC':'TOTAL NET', fmtEur(c.ttc)]);
+  pdf.setLineWidth(0.3);
+  rows.forEach((r,i)=>{
+    const isTot = i===rows.length-1;
+    if(isTot){ pdf.setFillColor(240,240,245); pdf.rect(ml,y-4.5,col2-ml,7,'F'); pdf.setFont('helvetica','bold'); }
+    else pdf.setFont('helvetica','normal');
+    pdf.setFontSize(10.5); pdf.setTextColor(30,30,30);
+    pdf.text(r[0], col1-2, y, {align:'right'});
+    pdf.text(r[1], col2-2, y, {align:'right'});
+    pdf.setDrawColor(200,200,200); pdf.line(ml,y+2,col2,y+2);
+    y += 8;
+  });
+  y += 4;
+
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(9.5); pdf.setTextColor(...GREY);
+  const clause = pdf.splitTextToSize('Refacturation effectuée conformément à la clause du bail commercial prévoyant le remboursement par le Preneur de la quote-part de taxe foncière afférente aux locaux loués, au prorata de sa durée d\'occupation sur l\'année. Avis de taxe foncière disponible sur simple demande.', cw);
+  pdf.text(clause, ml, y); y += clause.length*4.8 + 5;
+
+  pdf.setFont('helvetica','italic'); pdf.setFontSize(10.5);
+  const lt = pdf.splitTextToSize(`Valeur en votre aimable règlement de ${loyerLettres(c.ttc)}.`, cw);
+  pdf.text(lt, ml, y); y += lt.length*5.5 + 4;
+
+  pdf.setFont('helvetica','normal'); pdf.setFontSize(10);
+  const lignes = pdf.splitTextToSize('Nous vous remercions de nous adresser cette somme par tout moyen à votre convenance.\nCordiales salutations.', cw);
+  pdf.text(lignes, ml, y); y += lignes.length*5.5 + 12;
+
+  pdf.setFont('helvetica','bold'); pdf.setFontSize(10.5); pdf.setTextColor(...DARK);
+  pdf.text('SCI Thomarion,', ml, y); y+=5.5;
+  pdf.setFont('helvetica','normal');
+  pdf.text(sciInfo.adresse+',', ml, y); y+=5.5;
+  pdf.text(sciInfo.tel+',', ml, y); y+=5.5;
+  pdf.text('N° siret : '+sciInfo.siret, ml, y);
+  return pdf;
+}
+
+function tfReadForm(){
+  return {
+    annee:+document.getElementById('tfAnnee').value,
+    tf:+document.getElementById('tfMontant').value||0,
+    teom:+document.getElementById('tfTeom').value||0,
+    tantieme:+document.getElementById('tfTantieme').value||0,
+    tantiemeTotal:+document.getElementById('tfTantiemeTotal').value||0,
+    dateEntree:document.getElementById('tfDateEntree').value,
+    dateSortie:document.getElementById('tfDateSortie').value,
+    tva:+document.getElementById('tfTVA').value||0,
+    dateFact:document.getElementById('tfDateFact').value
+  };
+}
+
+window.tfCalc = function(){
+  const out=document.getElementById('tfPreview');
+  if(!out) return;
+  const c=tfCompute(tfReadForm());
+  const btn=document.getElementById('tfGenBtn');
+  if(c.err){ out.innerHTML=`<span style="color:var(--muted)">${c.err}</span>`; if(btn) btn.disabled=true; return; }
+  if(btn) btn.disabled=!fSel;
+  const e=n=>n.toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+  out.innerHTML=`Quote-part annuelle : <strong>${e(c.qpTF)}</strong>${c.teom?` + TEOM ${e(c.qpTEOM)}`:''} (${c.t}/${c.T})<br>
+    Occupation ${c.annee} : du ${tfFmtDate(c.deb)} au ${tfFmtDate(c.fin)} = <strong>${c.jours} j / ${c.nbJ}</strong>${c.complet?' (année complète)':''}<br>
+    Montant HT : <strong>${e(c.ht)}</strong> &middot; TVA ${c.tva}% : ${e(c.tvaV)} &middot; <strong style="color:var(--accent)">Total : ${e(c.ttc)}</strong>`;
+};
+
+// Préremplit depuis la dernière facture TF du locataire, sinon depuis son bail commercial
+window.tfOnSelect = function(loc){
+  if(!document.getElementById('tfAnnee')) return;
+  if(!loc){ tfCalc(); return; }
+  const set=(id,v)=>{ if(v!==undefined&&v!==null&&v!=='') document.getElementById(id).value=v; };
+  const last=(window.hist||[]).find(x=>x.type==='Taxe foncière'&&x.tfData&&x.tfData.locId===loc.id);
+  const norm=s=>(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const bail=(window.hist||[]).find(x=>x.type==='Bail commercial'&&x.comData&&norm(x.comData.societe)&&(norm(x.comData.societe).includes(norm(loc.nom))||norm(loc.nom).includes(norm(x.comData.societe))));
+  document.getElementById('tfDateSortie').value='';
+  if(last){
+    const d=last.tfData;
+    set('tfTantieme',d.tantieme); set('tfTantiemeTotal',d.tantiemeTotal);
+    set('tfDateEntree',d.dateEntree); set('tfDateSortie',d.dateSortie); set('tfTVA',d.tva);
+    document.getElementById('tfSource').textContent='Paramètres repris de la dernière facture taxe foncière ('+d.annee+').';
+  } else if(bail){
+    const d=bail.comData;
+    set('tfTantieme',d.tantieme); set('tfTantiemeTotal',d.tantiemeTotal);
+    set('tfDateEntree',d.dateDebut); set('tfMontant',d.taxeFonciere||'');
+    document.getElementById('tfTVA').value=loc.tva??20;
+    document.getElementById('tfSource').textContent='Paramètres repris du bail commercial de '+d.societe+'.';
+  } else {
+    document.getElementById('tfTVA').value=loc.tva??20;
+    document.getElementById('tfSource').textContent='Aucun bail commercial trouvé pour ce locataire : saisissez tantièmes et date d\'entrée.';
+  }
+  tfCalc();
+};
+
+window.genTF = async function(){
+  if(!fSel){ toast('Sélectionnez un locataire pro.','err'); return; }
+  const loc=window.fLocs.find(l=>l.id===fSel); if(!loc) return;
+  const d=tfReadForm();
+  const c=tfCompute(d);
+  if(c.err){ toast(c.err,'err'); return; }
+  try{
+    const pdf=genPdfTF(loc,d);
+    const fn=`facture_taxe_fonciere_${c.annee}_${loc.nom.replace(/\s+/g,'_')}.pdf`;
+    dlPDF(pdf,fn);
+    await dbAddHist({type:'Taxe foncière',qui:loc.nom,periode:`TF ${c.annee}`,montant:c.ttc+(c.tva?' € TTC':' €'),fichier:fn,tfData:{locId:loc.id,...d}});
+    toast('Facture taxe foncière téléchargée !','ok');
+  }catch(e){ toast('Erreur : '+e.message,'err'); }
+};
+
+document.addEventListener('DOMContentLoaded',()=>{const f=document.getElementById('tfDateFact');if(f&&!f.value){const n=new Date();f.value=n.getFullYear()+'-'+pad2(n.getMonth()+1)+'-'+pad2(n.getDate());}tfCalc();});
+window.renderTFHist = function(){
+  const c=document.getElementById('tfHistTable'); if(!c) return;
+  const h=(window.hist||[]).filter(x=>x.type==='Taxe foncière').slice(0,10);
+  if(!h.length){c.innerHTML='<div class="empty" style="padding:1.5rem"><div class="empty-icon">&#129534;</div>Aucune facture taxe foncière.</div>';return;}
+  c.innerHTML=`<table class="hist-table"><thead><tr><th>Société</th><th>Année</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${h.map(x=>`<tr><td><strong>${x.qui}</strong></td><td><span class="badge badge-gold">${x.periode}</span></td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${x.tfData?`<button class="btn-edit-sm" onclick="regenHist('${x.id}')" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
 // ── FOND DE COMMEwindow.fdLocs=[];
@@ -846,8 +1047,8 @@ window.renderFdHist=function(){
 window.renderAllHist=function(){
   const c=document.getElementById('allHistTable');
   if(!window.hist.length){c.innerHTML='<div class="empty" style="padding:2rem"><div class="empty-icon">&#128196;</div>Aucun document.</div>';return;}
-  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue','Bail commercial':'badge-green'};
-  const hasData=x=>(x.type==='Bail'&&x.bailData)||(x.type==='Quittance'&&x.qData)||(x.type==='Facture loyer'&&x.fData)||(x.type==='Fond de commerce'&&x.fdData);
+  const bc={Quittance:'badge-blue','Facture loyer':'badge-gold','Fond de commerce':'badge-green',Bail:'badge-blue','Bail commercial':'badge-green','Taxe fonci\u00e8re':'badge-gold'};
+  const hasData=x=>(x.type==='Bail'&&x.bailData)||(x.type==='Quittance'&&x.qData)||(x.type==='Facture loyer'&&x.fData)||(x.type==='Fond de commerce'&&x.fdData)||(x.type==='Taxe fonci\u00e8re'&&x.tfData);
   c.innerHTML=`<table class="hist-table"><thead><tr><th>Type</th><th>Bénéficiaire</th><th>Période</th><th>Montant</th><th>Généré le</th><th></th></tr></thead><tbody>${window.hist.map(x=>`<tr><td><span class="badge ${bc[x.type]||'badge-blue'}">${x.type}</span></td><td>${x.qui}</td><td>${x.periode}</td><td>${x.montant}</td><td style="color:var(--muted)">${x.date||''}</td><td style="white-space:nowrap">${hasData(x)?`<button class="btn-edit-sm" onclick="${x.type==='Bail'?`retelechargerBail('${x.id}')`:`regenHist('${x.id}')`}" style="margin-right:3px" title="Retélécharger">&#11015;</button>`:''}<button class="btn-danger-sm" onclick="supprimerHist('${x.id}')" title="Supprimer">&#128465;</button>${driveBtn(x)}</td></tr>`).join('')}</tbody></table>`;
 };
 
@@ -2132,7 +2333,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.17/08/2026 13:00</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.22/09/2026 23:15</div>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
         <button class="tab-btn" onclick="showPage('loyer',this)">&#128196; Factures Loyer</button>
@@ -2238,6 +2439,46 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
           </div>
         </div>
         <div class="card"><div class="card-head">&#128203; Derni&egrave;res factures loyer</div><div id="fHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#128196;</div>Aucune facture.</div></div></div>
+        <div class="gen-panel" style="margin-top:1.2rem">
+          <div class="gen-head">
+            <h2>&#129534; Refacturer la taxe fonci&egrave;re</h2>
+            <p>Quote-part du locataire pro s&eacute;lectionn&eacute;, au prorata de sa date d&#39;entr&eacute;e</p>
+          </div>
+          <div class="gen-body">
+            <div style="font-size:.78rem;color:var(--muted);background:rgba(200,169,110,.08);border-left:3px solid var(--accent);padding:.6rem .8rem;border-radius:6px;margin-bottom:1rem;line-height:1.5">
+              <strong>R&egrave;gles de calcul appliqu&eacute;es :</strong><br>
+              &bull; Quote-part = taxe fonci&egrave;re totale &times; (tanti&egrave;mes du lot &divide; tanti&egrave;mes totaux)<br>
+              &bull; Prorata = jours occup&eacute;s dans l&#39;ann&eacute;e (date d&#39;entr&eacute;e incluse &rarr; 31/12, ou date de sortie incluse) &divide; 365 (366 si bissextile)<br>
+              &bull; Entr&eacute;e avant le 1er janvier = ann&eacute;e compl&egrave;te<br>
+              &bull; TEOM (ordures m&eacute;nag&egrave;res) : m&ecirc;me quote-part et m&ecirc;me prorata, ligne s&eacute;par&eacute;e (laisser 0 si non refactur&eacute;e)<br>
+              &bull; TVA : taux du locataire pro (0 = TVA non applicable)<br>
+              <span id="tfSource" style="font-style:italic"></span>
+            </div>
+            <div class="row2">
+              <div class="field"><label>Ann&eacute;e de la taxe</label><input id="tfAnnee" type="number" value="2026" min="2020" max="2040" oninput="tfCalc()"/></div>
+              <div class="field"><label>Date de la facture</label><input id="tfDateFact" type="date" oninput="tfCalc()"/></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>Taxe fonci&egrave;re totale immeuble (&euro;)</label><input id="tfMontant" type="number" step="0.01" placeholder="2750" oninput="tfCalc()"/></div>
+              <div class="field"><label>TEOM totale (&euro;, 0 si non refactur&eacute;e)</label><input id="tfTeom" type="number" step="0.01" value="0" oninput="tfCalc()"/></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>Tanti&egrave;mes du lot</label><input id="tfTantieme" type="number" step="0.01" placeholder="185" oninput="tfCalc()"/></div>
+              <div class="field"><label>Tanti&egrave;mes totaux</label><input id="tfTantiemeTotal" type="number" step="0.01" value="1000" oninput="tfCalc()"/></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>Date d&#39;entr&eacute;e du locataire</label><input id="tfDateEntree" type="date" oninput="tfCalc()"/></div>
+              <div class="field"><label>Date de sortie (si parti en cours d&#39;ann&eacute;e)</label><input id="tfDateSortie" type="date" oninput="tfCalc()"/></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>TVA (%)</label><input id="tfTVA" type="number" step="0.01" value="20" oninput="tfCalc()"/></div>
+              <div></div>
+            </div>
+            <div id="tfPreview" style="font-size:.85rem;line-height:1.7;padding:.7rem .9rem;background:var(--blue-light);border-radius:8px;margin-bottom:.9rem"></div>
+            <button class="btn-gen" id="tfGenBtn" onclick="genTF()" disabled style="width:100%;font-size:.9rem;padding:.68rem">&#128196; G&eacute;n&eacute;rer la facture taxe fonci&egrave;re</button>
+          </div>
+        </div>
+        <div class="card"><div class="card-head">&#128203; Derni&egrave;res factures taxe fonci&egrave;re</div><div id="tfHistTable"><div class="empty" style="padding:1.5rem"><div class="empty-icon">&#129534;</div>Aucune facture taxe fonci&egrave;re.</div></div></div>
       </main>
     </div>
   </div>
