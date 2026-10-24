@@ -176,8 +176,9 @@ function dlPDF(pdf, filename) {
 
 // ── RANGEMENT AUTOMATIQUE DANS LE DOSSIER TVA (PC : Chrome, Edge, Opera) ──
 // Même dossier que l'appli Suivi Jean Camp (même site cevapizza11.github.io → choix partagé) :
-// on choisit UNE fois Téléchargements\TVA SCI THOMARION, puis chaque facture va dans
-// le sous-dossier « TVA SCI THOMARION <MOIS> <ANNÉE> » (créé s'il n'existe pas).
+// on choisit UNE fois Téléchargements\Gestion locative, puis chaque facture va dans
+// le sous-dossier « TVA SCI THOMARION <MOIS> <ANNÉE> » (loyer, taxe foncière)
+// ou « TVA CEVA PIZZA <MOIS> <ANNÉE> » (fond de commerce émis par Ceva Pizza), créé s'il n'existe pas.
 const TVA_PREFIXE = 'TVA SCI THOMARION';
 const MOIS_TVA = ["JANVIER","FÉVRIER","MARS","AVRIL","MAI","JUIN","JUILLET","AOÛT","SEPTEMBRE","OCTOBRE","NOVEMBRE","DÉCEMBRE"];
 const idbTVA=(mode,fn)=>new Promise((res,rej)=>{const o=indexedDB.open("jeancamp_fs",1);o.onupgradeneeded=()=>o.result.createObjectStore("h");o.onsuccess=()=>{const tx=o.result.transaction("h",mode);const r=fn(tx.objectStore("h"));tx.oncomplete=()=>res(r&&r.result);tx.onerror=()=>rej(tx.error);};o.onerror=()=>rej(o.error);});
@@ -185,7 +186,7 @@ const idbTVA=(mode,fn)=>new Promise((res,rej)=>{const o=indexedDB.open("jeancamp
 async function dossierTVA(){
   if(!window.showDirectoryPicker) return null;
   try{
-    const h=await idbTVA("readonly",st=>st.get("tva"));
+    const h=await idbTVA("readonly",st=>st.get("dossier_gestion_locative"));
     if(!h) return "choisir";
     let perm=await h.queryPermission({mode:"readwrite"});
     if(perm!=="granted") perm=await h.requestPermission({mode:"readwrite"});
@@ -196,11 +197,11 @@ async function dossierTVA(){
 async function choisirDossierTVA(){
   try{
     const h=await window.showDirectoryPicker({id:"tva-sci",mode:"readwrite",startIn:"downloads"});
-    await idbTVA("readwrite",st=>st.put(h,"tva"));
+    await idbTVA("readwrite",st=>st.put(h,"dossier_gestion_locative"));
     return h;
   }catch(e){
     console.warn("Dossier TVA non choisi",e);
-    if(e&&e.name!=="AbortError") alert("Ce dossier ne peut pas être choisi ("+e.message+").\nAstuce : la racine de Téléchargements est interdite par le navigateur, choisissez le dossier « TVA SCI THOMARION » à l'intérieur.");
+    if(e&&e.name!=="AbortError") alert("Ce dossier ne peut pas être choisi ("+e.message+").\nAstuce : la racine de Téléchargements est interdite par le navigateur, choisissez le dossier « Gestion locative » à l'intérieur.");
     return null;
   }
 }
@@ -211,7 +212,7 @@ function demanderDossierTVA(){
     ov.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px";
     ov.innerHTML=`<div style="background:#fff;color:#16213e;border-radius:12px;padding:20px;max-width:440px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.3);font-family:'DM Sans',sans-serif">
       <div style="font-weight:700;font-size:1rem;margin-bottom:8px">&#128193; O&ugrave; ranger les factures ?</div>
-      <div style="font-size:.85rem;color:#555;line-height:1.5;margin-bottom:14px">Cliquez sur &laquo; Choisir le dossier &raquo;, allez dans <b>T&eacute;l&eacute;chargements</b>, ouvrez (ou cr&eacute;ez) le dossier <b>&laquo; TVA SCI THOMARION &raquo;</b> puis validez.<br>L'appli y cr&eacute;e chaque mois le sous-dossier &laquo; TVA SCI THOMARION <i>MOIS ANN&Eacute;E</i> &raquo;, le m&ecirc;me que pour les factures de charges de Suivi Jean Camp. Ce choix est m&eacute;moris&eacute;.</div>
+      <div style="font-size:.85rem;color:#555;line-height:1.5;margin-bottom:14px">Cliquez sur &laquo; Choisir le dossier &raquo;, allez dans <b>T&eacute;l&eacute;chargements</b>, cr&eacute;ez (ou ouvrez) le dossier <b>&laquo; Gestion locative &raquo;</b> puis validez.<br>L'appli y cr&eacute;e chaque mois les sous-dossiers &laquo; TVA SCI THOMARION <i>MOIS ANN&Eacute;E</i> &raquo; et &laquo; TVA CEVA PIZZA <i>MOIS ANN&Eacute;E</i> &raquo; (fond de commerce). M&ecirc;me dossier que Suivi Jean Camp. Ce choix est m&eacute;moris&eacute;.</div>
       <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
         <button id="dtva-dl" class="btn btn-ghost">T&eacute;l&eacute;charger sans ranger</button>
         <button id="dtva-ok" class="btn btn-dark" style="width:auto">&#128193; Choisir le dossier</button>
@@ -222,10 +223,10 @@ function demanderDossierTVA(){
   });
 }
 // Enregistre la facture dans le sous-dossier du mois ; sinon téléchargement normal. Retourne le chemin ou null.
-async function rangerOuTelecharger(dir, pdf, filename, mois, annee){
+async function rangerOuTelecharger(dir, pdf, filename, mois, annee, prefixe){
   if(dir && typeof dir==='object'){
     try{
-      const nomDossier=`${TVA_PREFIXE} ${MOIS_TVA[mois-1]} ${annee}`;
+      const nomDossier=`${prefixe||TVA_PREFIXE} ${MOIS_TVA[mois-1]} ${annee}`;
       const sous=await dir.getDirectoryHandle(nomDossier,{create:true});
       const fh=await sous.getFileHandle(filename,{create:true});
       const w=await fh.createWritable(); await w.write(pdf.output('blob')); await w.close();
@@ -248,7 +249,7 @@ window.changerDossierTVA=async function(){
 window.afficherDossierTVA=async function(){
   const el=document.getElementById('sciDossierTVA'); if(!el) return;
   if(!window.showDirectoryPicker){ el.textContent='Non disponible sur ce navigateur (iPhone) : téléchargement normal.'; return; }
-  try{ const h=await idbTVA("readonly",st=>st.get("tva")); el.textContent=h?('Dossier choisi : '+h.name):'Aucun dossier choisi (il sera demandé à la première facture).'; }
+  try{ const h=await idbTVA("readonly",st=>st.get("dossier_gestion_locative")); el.textContent=h?('Dossier choisi : '+h.name):'Aucun dossier choisi (il sera demandé à la première facture).'; }
   catch(e){ el.textContent='Aucun dossier choisi.'; }
 };
 
@@ -1115,7 +1116,8 @@ window.genFond=async function(){
     const pdf=genPdfFond(mois,annee,lHT,lTV,cHT,cTV,loc.nom,loc.emetteur||'SASU Ceva Pizza',loc.adr);
     const mNom=MCAPDOC[mois];
     const fn=`facture_fond_${loc.nom.replace(/\s+/g,'_')}_${mNom}_${annee}.pdf`;
-    const ou=await rangerOuTelecharger(dirTVA,pdf,fn,mois,annee);
+    const emet=loc.emetteur||'SASU Ceva Pizza';
+    const ou=await rangerOuTelecharger(dirTVA,pdf,fn,mois,annee,/ceva/i.test(emet)?'TVA CEVA PIZZA':TVA_PREFIXE);
     await dbAddHist({type:'Fond de commerce',qui:loc.nom,periode:`${mNom} ${annee}`,montant:tTC.toFixed(2)+' € TTC',fichier:fn,fdData:{locId:loc.id,mois,annee,lHT,lTV,cHT,cTV}});
     renderFdHist();toast(ou?('Facture fond rangée dans '+ou):'Facture fond téléchargée !','ok');
   }catch(e){toast('Erreur : '+e.message,'err');}
@@ -2421,7 +2423,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.24/10/2026 18:00</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.24/10/2026 18:12</div>
       <a class="app-switch" href="https://cevapizza11.github.io/suivielec/" title="Ouvrir l'appli Suivi Jean Camp (électricité, eau, charges)">&#9889; Suivi &Eacute;lec &amp; Eau &rarr;</a>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
@@ -2830,7 +2832,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
       <div style="font-size:.75rem;color:#888;margin-top:.4rem">Ces informations apparaissent automatiquement sur toutes les quittances, factures et baux g&eacute;n&eacute;r&eacute;s.</div>
       <hr>
       <div style="font-weight:600;font-size:.85rem;margin-bottom:.35rem">&#128193; Rangement des factures pour la TVA</div>
-      <div style="font-size:.75rem;color:#666;line-height:1.5">Les factures de <b>loyer</b>, de <b>taxe fonci&egrave;re</b> et de <b>fond de commerce</b> sont enregistr&eacute;es automatiquement dans <b>T&eacute;l&eacute;chargements &rarr; TVA SCI THOMARION &rarr; TVA SCI THOMARION <i>MOIS ANN&Eacute;E</i></b> (mois de la facture), le m&ecirc;me dossier que les factures de charges de Suivi Jean Camp. Sous-dossier cr&eacute;&eacute; s'il n'existe pas. PC uniquement (Chrome, Edge, Opera) ; sur iPhone, t&eacute;l&eacute;chargement normal. Les quittances et les baux restent en t&eacute;l&eacute;chargement normal.</div>
+      <div style="font-size:.75rem;color:#666;line-height:1.5">Dossier principal : <b>T&eacute;l&eacute;chargements &rarr; Gestion locative</b> (le m&ecirc;me que Suivi Jean Camp). Sous-dossiers selon l'&eacute;metteur, au mois de la facture :<br>&bull; <b>TVA SCI THOMARION <i>MOIS ANN&Eacute;E</i></b> : factures de loyer, de taxe fonci&egrave;re, et factures de charges de Suivi Jean Camp<br>&bull; <b>TVA CEVA PIZZA <i>MOIS ANN&Eacute;E</i></b> : factures de fond de commerce dont l'&eacute;metteur est Ceva Pizza (sinon TVA SCI THOMARION)<br> Sous-dossier cr&eacute;&eacute; s'il n'existe pas. PC uniquement (Chrome, Edge, Opera) ; sur iPhone, t&eacute;l&eacute;chargement normal. Les quittances et les baux restent en t&eacute;l&eacute;chargement normal.</div>
       <div id="sciDossierTVA" style="font-size:.75rem;color:#16213e;margin:.4rem 0">&hellip;</div>
       <button class="btn btn-ghost" type="button" onclick="changerDossierTVA()">&#128193; Choisir / changer le dossier</button>
     </div>
