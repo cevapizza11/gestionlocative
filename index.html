@@ -186,7 +186,11 @@ const idbTVA=(mode,fn)=>new Promise((res,rej)=>{const o=indexedDB.open("jeancamp
 async function dossierTVA(){
   if(!window.showDirectoryPicker) return null;
   try{
-    const h=await idbTVA("readonly",st=>st.get("dossier_gestion_locative"));
+    let h=await idbTVA("readonly",st=>st.get("dossier_gestion_locative"));
+    if(!h){ // reprise d'un dossier choisi avant le 24/10/2026 18:12 (ancien réglage), s'il s'appelle « Gestion locative »
+      const old=await idbTVA("readonly",st=>st.get("tva"));
+      if(old&&/gestion\s*locative/i.test(old.name)){ h=old; await idbTVA("readwrite",st=>st.put(old,"dossier_gestion_locative")); }
+    }
     if(!h) return "choisir";
     let perm=await h.queryPermission({mode:"readwrite"});
     if(perm!=="granted") perm=await h.requestPermission({mode:"readwrite"});
@@ -2423,7 +2427,7 @@ hr{border:none;border-top:1px solid var(--border);margin:.9rem 0;}
   <div class="topbar">
     <div class="topbar-left">
       <div class="topbar-brand">&#127968; SCI <span>Thomarion</span></div>
-      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.24/10/2026 18:12</div>
+      <div style="font-size:.65rem;color:rgba(255,255,255,.35);white-space:nowrap">v.24/10/2026 18:14</div>
       <a class="app-switch" href="https://cevapizza11.github.io/suivielec/" title="Ouvrir l'appli Suivi Jean Camp (électricité, eau, charges)">&#9889; Suivi &Eacute;lec &amp; Eau &rarr;</a>
       <div class="tabs">
         <button class="tab-btn active" onclick="showPage('quittances',this)">&#127968; Quittances</button>
